@@ -71,8 +71,21 @@ table inet zapret2 {
         type ipv4_addr
         flags interval
     }
+    set z2k_warp_excl4 {
+        type ipv4_addr
+        flags interval
+        comment "z2k WARP address exclusions"
+    }
+    set z2k_warp_domain_excl4 {
+        type ipv4_addr
+        timeout 1h
+        size 8192
+        comment "z2k WARP domain exclusions"
+    }
     chain z2k_warp_mark {
         type filter hook prerouting priority mangle; policy accept;
+        ip daddr @z2k_warp_excl4 return
+        ip daddr @z2k_warp_domain_excl4 return
         ip daddr @z2k_warp_dst4 meta mark set mark & 0x7fffffff ^ 0x80000000
     }
     chain z2k_warp_mss {
@@ -90,7 +103,7 @@ NFT_TABLE
     exit 0 ;;
   'list chain inet zapret2 z2k_warp_mark')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
-    printf '%s\n' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000' ;;
+    printf '%s\n' 'ip daddr @z2k_warp_excl4 return' 'ip daddr @z2k_warp_domain_excl4 return' 'ip daddr @z2k_warp_dst4 meta mark set meta mark & 0x7fffffff ^ 0x80000000' ;;
   'list chain inet zapret2 z2k_warp_mss')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
     printf '%s\n' 'oifname "z2ktun0" tcp flags syn tcp option maxseg size set rt mtu' 'iifname "z2ktun0" tcp flags syn tcp option maxseg size set 1240' ;;

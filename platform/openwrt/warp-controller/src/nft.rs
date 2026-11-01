@@ -252,8 +252,8 @@ pub fn domain_exclusion_set_matches(
         return Ok(None);
     };
     let normalized = block.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Вывод nft list table может не показывать флаг timeout у созданного набора.
     let owned = normalized.contains("type ipv4_addr")
-        && normalized.contains("flags timeout")
         && normalized.contains("timeout 1h")
         && normalized.contains("size 8192")
         && normalized.contains(&format!("comment \"{DOMAIN_EXCLUSION_SET_COMMENT}\""));

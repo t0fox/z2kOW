@@ -88,16 +88,7 @@ func (s PairSet) Apply(changes []Change, now time.Time) error {
 				return fmt.Errorf("create WARP DNS set: %w: %s", err, out)
 			}
 		}
-		seconds := int(ch.Expiry.Sub(now).Seconds())
-		if ch.Expiry.After(now.Add(time.Duration(seconds) * time.Second)) {
-			seconds++
-		}
-		if seconds < 1 {
-			seconds = 1
-		}
-		if seconds > 3600 {
-			seconds = 3600
-		}
+		seconds := timeoutSeconds(ch.Expiry, now)
 		if out, err := s.ipset("add", name, ch.Dest.String(), "timeout", fmt.Sprint(seconds), "-exist"); err != nil {
 			return fmt.Errorf("add WARP DNS address: %w: %s", err, out)
 		}
@@ -124,6 +115,73 @@ func (s PairSet) ReplaceAll(changes []Change, now time.Time) error {
 		if out, err := s.ipset("destroy", name); err != nil {
 			return fmt.Errorf("destroy stale WARP DNS set: %w: %s", err, out)
 		}
+	}
+	return s.Apply(changes, now)
+}
+
+// timeoutSeconds — остаток жизни записи для ipset: вверх до целой секунды,
+// в пределах 1..3600 (таймаут набора).
+func timeoutSeconds(expiry, now time.Time) int {
+	seconds := int(expiry.Sub(now).Seconds())
+	if expiry.After(now.Add(time.Duration(seconds) * time.Second)) {
+		seconds++
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds > 3600 {
+		seconds = 3600
+	}
+	return seconds
+}
+
+// ExclSetName — общий набор адресов доменных исключений для upstream runtime.
+const ExclSetName = "z2k_warp_xdns"
+
+// ExclSet пишет адреса доменных исключений в один общий набор.
+type ExclSet struct{ Binary string }
+
+func (s ExclSet) ipset(args ...string) ([]byte, error) {
+	return PairSet{Binary: s.Binary}.ipset(args...)
+}
+
+func (s ExclSet) create() error {
+	if out, err := s.ipset("create", ExclSetName, "hash:ip", "family", "inet", "timeout", "3600", "maxelem", "8192", "-exist"); err != nil {
+		return fmt.Errorf("create WARP exclusion set: %w: %s", err, out)
+	}
+	return nil
+}
+
+func (s ExclSet) Apply(changes []Change, now time.Time) error {
+	created := false
+	for _, ch := range changes {
+		if !EligibleDestination(ch.Dest) {
+			return errors.New("invalid WARP exclusion address")
+		}
+		if ch.Delete {
+			_, _ = s.ipset("del", ExclSetName, ch.Dest.String(), "-exist")
+			continue
+		}
+		if !created {
+			if err := s.create(); err != nil {
+				return err
+			}
+			created = true
+		}
+		if out, err := s.ipset("add", ExclSetName, ch.Dest.String(), "timeout", fmt.Sprint(timeoutSeconds(ch.Expiry, now)), "-exist"); err != nil {
+			return fmt.Errorf("add WARP exclusion address: %w: %s", err, out)
+		}
+	}
+	return nil
+}
+
+// ReplaceAll пересобирает набор из кэша после перезапуска observer.
+func (s ExclSet) ReplaceAll(changes []Change, now time.Time) error {
+	if err := s.create(); err != nil {
+		return err
+	}
+	if out, err := s.ipset("flush", ExclSetName); err != nil {
+		return fmt.Errorf("flush WARP exclusion set: %w: %s", err, out)
 	}
 	return s.Apply(changes, now)
 }
