@@ -2642,7 +2642,7 @@ fn remove_domain_state(paths: &Paths, _full: bool) -> io::Result<()> {
     }
     let mut domain_exclusion_set_has_elements = false;
     let mut pair_set_has_elements = false;
-    let pair_set_exists = if table_exists(&tables, &paths.nft_family, &paths.nft_table) {
+    if table_exists(&tables, &paths.nft_family, &paths.nft_table) {
         let output = command_output(
             "nft",
             &["list", "table", &paths.nft_family, &paths.nft_table],
@@ -2668,10 +2668,7 @@ fn remove_domain_state(paths: &Paths, _full: bool) -> io::Result<()> {
         if pair_set_exists {
             pair_set_has_elements = nft::set_has_elements(&output, &paths.domain_set)?;
         }
-        pair_set_exists
-    } else {
-        false
-    };
+    }
     let mut batch = nft::render_domain_remove_batch(&DomainRemoveConfig {
         family: &observer_family,
         observer_table: &observer_table,
