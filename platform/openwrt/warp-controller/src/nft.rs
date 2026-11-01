@@ -267,6 +267,28 @@ pub fn domain_exclusion_set_matches(
     }
 }
 
+pub fn set_has_elements(table_output: &str, set: &str) -> io::Result<bool> {
+    if !valid_identifier(set) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "имя nft-набора содержит недопустимые символы",
+        ));
+    }
+    let Some(block) = extract_nft_block(table_output, "set", set) else {
+        return Ok(false);
+    };
+    let Some(elements) = block.split("elements = {").nth(1) else {
+        return Ok(false);
+    };
+    let Some((values, _)) = elements.split_once('}') else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "не удалось прочитать элементы nft set",
+        ));
+    };
+    Ok(values.split(',').any(|value| !value.trim().is_empty()))
+}
+
 pub fn render_domain_exclusion_set_create_batch(
     family: &str,
     table: &str,
@@ -1758,7 +1780,27 @@ fn valid_ipv4_entry(entry: &str, allow_cidr: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{fw4_forward_matches, render_fw4_forward_apply_batch};
+    use super::{fw4_forward_matches, render_fw4_forward_apply_batch, set_has_elements};
+
+    // Пустой набор не содержит строки elements в выводе nft.
+    #[test]
+    fn set_has_elements_empty_and_nonempty() {
+        let empty = r#"table inet zapret2 {
+    set z2k_warp_domain_excl4 {
+        type ipv4_addr
+        size 8192
+        timeout 1h
+        comment "z2k WARP domain exclusions"
+    }
+}"#;
+        let populated = empty.replace(
+            "        comment \"z2k WARP domain exclusions\"",
+            "        elements = { 1.1.1.1 timeout 30m }\n        comment \"z2k WARP domain exclusions\"",
+        );
+
+        assert!(!set_has_elements(empty, "z2k_warp_domain_excl4").unwrap());
+        assert!(set_has_elements(&populated, "z2k_warp_domain_excl4").unwrap());
+    }
 
     #[test]
     fn verifies_nft_1_0_9_canonical_fw4_mark_rule() {

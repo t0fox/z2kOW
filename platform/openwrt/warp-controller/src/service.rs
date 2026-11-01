@@ -2640,26 +2640,35 @@ fn remove_domain_state(paths: &Paths, _full: bool) -> io::Result<()> {
             ));
         }
     }
-    let mut domain_exclusion_set_exists = false;
+    let mut domain_exclusion_set_has_elements = false;
+    let mut pair_set_has_elements = false;
     let pair_set_exists = if table_exists(&tables, &paths.nft_family, &paths.nft_table) {
         let output = command_output(
             "nft",
             &["list", "table", &paths.nft_family, &paths.nft_table],
         )?;
-        domain_exclusion_set_exists = nft::domain_exclusion_set_matches(
+        if nft::domain_exclusion_set_matches(
             &output,
             &paths.nft_family,
             &paths.nft_table,
             &paths.domain_exclude_set,
         )?
-        .is_some();
-        nft::domain_pair_set_matches(
+        .is_some()
+        {
+            domain_exclusion_set_has_elements =
+                nft::set_has_elements(&output, &paths.domain_exclude_set)?;
+        }
+        let pair_set_exists = nft::domain_pair_set_matches(
             &output,
             &paths.nft_family,
             &paths.nft_table,
             &paths.domain_set,
         )?
-        .is_some()
+        .is_some();
+        if pair_set_exists {
+            pair_set_has_elements = nft::set_has_elements(&output, &paths.domain_set)?;
+        }
+        pair_set_exists
     } else {
         false
     };
@@ -2670,10 +2679,10 @@ fn remove_domain_state(paths: &Paths, _full: bool) -> io::Result<()> {
         pair_table: &paths.nft_table,
         pair_set: &paths.domain_set,
         observer_exists,
-        pair_set_exists,
+        pair_set_exists: pair_set_has_elements,
         full: false,
     })?;
-    if domain_exclusion_set_exists {
+    if domain_exclusion_set_has_elements {
         batch.push_str(&format!(
             "flush set {} {} {}\n",
             paths.nft_family, paths.nft_table, paths.domain_exclude_set
