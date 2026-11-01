@@ -428,9 +428,18 @@ else
     no "место проверки размера" "между воротами и разбором" "ворота=$_gate_line потолок=$_cap_line case=$_case_line"
 fi
 # Крупные загрузки не должны попасть под общий потолок.
-grep -q '/warp/list/save|/warp/devices/save|/whitelist/import|/strategy/pool/save|/strategy/pool/validate' "$API" \
+_large_routes=$(sed -n '/^case "\$PATH_INFO" in$/,/^esac$/p' "$API")
+_missing_routes=""
+for _route in /warp/list/save /warp/devices/save /whitelist/import \
+              /strategy/pool/save /strategy/pool/validate /state/bulk /whitelist/save /extra-domains/save; do
+    case "$_large_routes" in
+        *"$_route"*) ;;
+        *) _missing_routes="$_missing_routes $_route" ;;
+    esac
+done
+[ -z "$_missing_routes" ] \
     && ok "маршруты крупных загрузок выведены из-под общего потолка" \
-    || no "исключения для крупных загрузок" "перечислены" "нет"
+    || no "исключения для крупных загрузок" "перечислены" "нет:$_missing_routes"
 
 # --- 16. Форма входа не исчезает навсегда ------------------------------------------
 #

@@ -55,6 +55,7 @@ grep -oE -- '--blob=[A-Za-z_][A-Za-z0-9_]*:@[^ "]+' "$DIR/files/S99zapret2.new" 
         [ -n "$_f" ] && printf 'x' > "$SB/files/fake/$_f"
     done
 # Хостлисты, которые генератор объявляет безусловно.
+: > "$SB/lists/discovered-domains.txt"
 : > "$SB/lists/extra-domains.txt"
 printf '#!/bin/sh\nexit 0\n' > "$SB/nfq2/nfqws2"; chmod +x "$SB/nfq2/nfqws2"
 
@@ -86,7 +87,7 @@ if [ "$RC" != 0 ]; then
 fi
 [ "$RC" = 0 ] && ok "без измеренной линии цепочка проходит" \
               || bad "цепочка встала (код $RC): $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
-grep -q 'z2k_sni_pick' "$SB/config" \
+grep -q 'z2k_sni_fake' "$SB/config" \
     && bad "механизм попал в конфиг, хотя линия не измерена" \
     || ok "без измерения механизма в конфиге нет"
 
@@ -99,7 +100,7 @@ fi
 # --- 2. Механизм ВКЛЮЧЁН — ровно случай r-81.1 ------------------------------
 printf '1\n' > "$SB/state/tcp16.flag"
 OUT=$(run_steps); RC=$?
-if grep -q 'z2k_sni_pick' "$SB/config"; then
+if grep -q 'z2k_sni_fake' "$SB/config"; then
     ok "при измеренном блоке механизм попадает в конфиг"
 else
     bad "механизм в конфиг не попал — обход работать не будет"

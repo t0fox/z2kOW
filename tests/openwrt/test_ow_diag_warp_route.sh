@@ -61,7 +61,7 @@ case "$*" in
     exit 0 ;;
   'list table inet zapret2')
     [ "${NFT_FULL:-0}" = 1 ] || exit 1
-    cat <<'NFT_TABLE'
+    cat <<'NFT_TABLE' | sed 's/time out/timeout/'
 table inet zapret2 {
     set z2k_warp_dst4 {
         type ipv4_addr
@@ -78,7 +78,7 @@ table inet zapret2 {
     }
     set z2k_warp_domain_excl4 {
         type ipv4_addr
-        timeout 1h
+        time out 1h
         size 8192
         comment "z2k WARP domain exclusions"
     }
