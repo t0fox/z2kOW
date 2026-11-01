@@ -294,6 +294,33 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertEqual(next_result["accounted_seq"], 143)
         self.assertEqual(next_result["latest_tag"], "p-86.20")
 
+    def test_included_release_does_not_advance_review_watermark_before_target_is_published(self) -> None:
+        registry = {
+            "schema": 1,
+            "skips": [{
+                "tag": "p-86.19",
+                "seq": 143,
+                "status": "included",
+                "target": "p-86.20",
+                "reason": "Изменение адаптировано и включено в p-86.20.",
+            }],
+        }
+        upstream = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.20",
+            "seq": 144,
+            "history": [{"v": "r-86.5"}, {"v": "p-86.19"}, {"v": "p-86.20"}],
+        }
+
+        result = self._check_upstream(upstream, registry)
+
+        self.assertEqual(result.returncode, 3, result.stdout)
+        result_data = json.loads(result.stdout.splitlines()[0])
+        self.assertEqual(result_data["accounted_seq"], 141)
+        self.assertTrue(result_data["update_available"])
+        self.assertEqual(result_data["included"][0]["target"], "p-86.20")
+        self.assertEqual(result_data["not_applicable"], [])
+
     def test_upstream_skip_must_match_a_release_in_live_history(self) -> None:
         """Реестр не должен пропускать тег, которого нет в истории upstream."""
         registry = {
@@ -369,8 +396,8 @@ class ControlledArtifactTests(unittest.TestCase):
         self.assertNotEqual(mismatched_seq.returncode, 0)
         self.assertNotEqual(malformed_seq.returncode, 0)
 
-    def test_upstream_product_release_can_precede_only_registered_not_applicable_releases(self) -> None:
-        """Разрешает целевой тег перед хвостом, целиком отмеченным неприменимым."""
+    def test_upstream_product_release_can_precede_accounted_intermediate_releases(self) -> None:
+        """Разрешает целевой тег, когда все более новые теги учтены."""
         target_commit = "a" * 40
         branch_commit = "b" * 40
         target = {
@@ -427,7 +454,7 @@ class ControlledArtifactTests(unittest.TestCase):
         skips = {
             "schema": 1,
             "skips": [
-                {"tag": "p-86.23", "seq": 147, "status": "not applicable", "reason": "Изменение адаптировано."},
+                {"tag": "p-86.23", "seq": 147, "status": "included", "target": "p-86.24", "reason": "Изменение адаптировано и включено в p-86.24."},
                 {"tag": "r-86.6", "seq": 148, "status": "not applicable", "reason": "Собственная реализация."},
             ],
         }
@@ -440,6 +467,41 @@ class ControlledArtifactTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), target_commit)
+
+    def test_an_included_upstream_release_cannot_be_published_separately(self) -> None:
+        target_commit = "9fafc758d48e52a845efd48c839d1051e5c60b78"
+        branch_commit = "e5d9850802174e6098687f09945cace33afe3a8c"
+        target = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.23",
+            "seq": 147,
+            "history": [{"v": "p-86.22"}, {"v": "p-86.23"}],
+        }
+        live = {
+            "branch": "z2k-enhanced",
+            "current": "p-86.24",
+            "seq": 148,
+            "history": [{"v": "p-86.22"}, {"v": "p-86.23"}, {"v": "p-86.24"}],
+        }
+        registry = {
+            "schema": 1,
+            "skips": [{
+                "tag": "p-86.23",
+                "seq": 147,
+                "status": "included",
+                "target": "p-86.24",
+                "reason": "Изменение адаптировано и включено в p-86.24.",
+            }],
+        }
+        refs = (
+            f"{branch_commit}\trefs/heads/z2k-enhanced\n"
+            f"{target_commit}\trefs/tags/p-86.23\n"
+        )
+
+        result = self._verify_upstream_tag(live, target, refs, "p-86.23", 147, registry)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("включён в p-86.24", result.stderr)
 
     def test_upstream_product_release_rejects_an_unregistered_or_misnumbered_newer_release(self) -> None:
         """Отклоняет live-историю, где seq не соответствует числу версий после цели."""

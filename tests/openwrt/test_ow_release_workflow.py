@@ -62,7 +62,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("UPSTREAM_BRANCH = \"z2k-enhanced\"", controlled)
         self.assertIn("проверенный Git-тег upstream", validate)
 
-    def test_release_gate_accepts_only_registered_not_applicable_releases_after_target(self) -> None:
+    def test_release_gate_checks_the_upstream_accounting_registry(self) -> None:
         workflow = (ROOT / ".github/workflows/release-openwrt.yml").read_text(encoding="utf-8")
         validate = workflow.split("  validate-release:", 1)[1].split("  verify-source-ci:", 1)[0]
         publish = workflow.split("  publish-release:", 1)[1]

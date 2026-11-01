@@ -178,14 +178,14 @@ class PublicationPolicyTests(unittest.TestCase):
                     upstream_commit="e" * 40,
                 )
 
-    def test_upstream_release_rejects_intermediate_version_without_not_applicable_record(self) -> None:
+    def test_upstream_release_rejects_intermediate_version_without_accounting_record(self) -> None:
         skipped = upstream_manifest("r-86.7", 143)
         skipped["history"] = [
             {"v": "r-86.5", "desc": "База."},
             {"v": "r-86.6", "desc": "Пропускаемый upstream-выпуск."},
             {"v": "r-86.7", "desc": "Текущий upstream-выпуск."},
         ]
-        with self.assertRaisesRegex(ValueError, "должен быть отмечен not applicable"):
+        with self.assertRaisesRegex(ValueError, "должен быть учтён"):
             self.plan("upstream-release", upstream=skipped)
 
     def test_upstream_release_can_advance_past_documented_not_applicable_versions(self) -> None:
@@ -224,6 +224,67 @@ class PublicationPolicyTests(unittest.TestCase):
         self.assertEqual((plan["tag"], plan["seq"], plan["product_tag"]), ("p-86.21", 145, "p-86.21"))
         self.assertEqual((plan["base_current"], plan["base_seq"]), ("p-86.18", 142))
 
+    def test_upstream_release_accepts_adapted_intermediate_versions_in_the_target_release(self) -> None:
+        advanced = upstream_manifest("p-86.21", 145)
+        advanced["history"] = [
+            {"v": "p-86.18", "desc": "Текущая production-версия."},
+            {"v": "p-86.19", "desc": "Адаптированное изменение."},
+            {"v": "p-86.20", "desc": "Неприменимый выпуск."},
+            {"v": "p-86.21", "desc": "Целевой выпуск."},
+        ]
+        controlled = controlled_manifest()
+        controlled["current"] = "p-86.18"
+        controlled["seq"] = 142
+        skips = {
+            "schema": 1,
+            "skips": [
+                {
+                    "tag": "p-86.19",
+                    "seq": 143,
+                    "status": "included",
+                    "target": "p-86.21",
+                    "reason": "Изменение адаптировано и включено в целевой выпуск.",
+                },
+                {
+                    "tag": "p-86.20",
+                    "seq": 144,
+                    "status": "not applicable",
+                    "reason": "Этот выпуск не меняет поведение на целевой платформе.",
+                },
+            ],
+        }
+
+        plan = self.plan(
+            "upstream-release", upstream=advanced, controlled=controlled, skip_registry=skips
+        )
+
+        self.assertEqual((plan["tag"], plan["seq"]), ("p-86.21", 145))
+
+    def test_upstream_release_rejects_adapted_changes_included_in_a_different_target(self) -> None:
+        advanced = upstream_manifest("p-86.21", 145)
+        advanced["history"] = [
+            {"v": "p-86.18", "desc": "Текущая production-версия."},
+            {"v": "p-86.19", "desc": "Адаптированное изменение."},
+            {"v": "p-86.20", "desc": "Промежуточный выпуск."},
+            {"v": "p-86.21", "desc": "Целевой выпуск."},
+        ]
+        controlled = controlled_manifest()
+        controlled["current"] = "p-86.18"
+        controlled["seq"] = 142
+        skips = {
+            "schema": 1,
+            "skips": [{
+                "tag": "p-86.19",
+                "seq": 143,
+                "status": "included",
+                "target": "p-86.20",
+                "reason": "Изменение включено в более ранний целевой выпуск.",
+            }],
+        }
+
+        with self.assertRaisesRegex(ValueError, "а не в целевой выпуск p-86.21"):
+            self.plan("upstream-release", upstream=advanced, controlled=controlled, skip_registry=skips)
+
     def test_upstream_release_rejects_skip_with_wrong_sequence(self) -> None:
         advanced = upstream_manifest("r-86.7", 143)
         advanced["history"] = [
@@ -241,7 +302,7 @@ class PublicationPolicyTests(unittest.TestCase):
             }],
         }
 
-        with self.assertRaisesRegex(ValueError, "должен быть отмечен not applicable"):
+        with self.assertRaisesRegex(ValueError, "должен быть учтён"):
             self.plan("upstream-release", upstream=advanced, skip_registry=skips)
 
     def test_manifest_state_accepts_only_the_candidate_baseline_or_already_published_payload(self) -> None:

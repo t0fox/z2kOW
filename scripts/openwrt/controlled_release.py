@@ -240,29 +240,53 @@ def _validated_skip_records(
     history_tags = {
         entry.get("v") for entry in history if isinstance(entry.get("v"), str)
     }
+    history_indexes = {
+        entry.get("v"): index for index, entry in enumerate(history)
+        if isinstance(entry.get("v"), str)
+    }
     skips: list[dict[str, object]] = []
     seen_tags: set[str] = set()
     seen_seqs: set[int] = set()
     for record in records:
-        if not isinstance(record, dict) or set(record) != {"tag", "seq", "status", "reason"}:
+        if not isinstance(record, dict):
             raise ValueError("запись реестра пропусков upstream повреждена")
         tag = record.get("tag")
         seq = record.get("seq")
         status = record.get("status")
         reason = record.get("reason")
+        expected_keys = {"tag", "seq", "status", "reason"}
+        if status == "included":
+            expected_keys.add("target")
+        if set(record) != expected_keys:
+            raise ValueError("запись реестра пропусков upstream повреждена")
         if not isinstance(tag, str) or not TAG_RE.fullmatch(tag):
             raise ValueError("тег в реестре пропусков upstream повреждён")
         if not isinstance(seq, int) or isinstance(seq, bool) or seq < 1 or seq > latest_seq:
             raise ValueError("seq в реестре пропусков upstream не подтверждён текущим манифестом")
-        if status != "not applicable" or not isinstance(reason, str) or not reason.strip():
-            raise ValueError("пропуск upstream должен иметь статус not applicable и причину")
+        if (
+            not isinstance(status, str)
+            or status not in {"not applicable", "included"}
+            or not isinstance(reason, str)
+            or not reason.strip()
+        ):
+            raise ValueError("в реестре upstream нужен статус not applicable или included и причина")
         if tag not in history_tags:
-            raise ValueError(f"пропущенный выпуск {tag} отсутствует в актуальной истории upstream")
+            raise ValueError(f"учтённый выпуск {tag} отсутствует в актуальной истории upstream")
+        entry: dict[str, object] = {"tag": tag, "seq": seq, "status": status, "reason": reason.strip()}
+        if status == "included":
+            target = record.get("target")
+            if (
+                not isinstance(target, str)
+                or target not in history_tags
+                or history_indexes[target] <= history_indexes[tag]
+            ):
+                raise ValueError("целевой выпуск для included-тега upstream отсутствует или стоит раньше него")
+            entry["target"] = target
         if tag in seen_tags or seq in seen_seqs:
             raise ValueError("реестр пропусков upstream содержит повторный тег или seq")
         seen_tags.add(tag)
         seen_seqs.add(seq)
-        skips.append({"tag": tag, "seq": seq, "status": status, "reason": reason.strip()})
+        skips.append(entry)
     return skips
 
 
@@ -335,7 +359,14 @@ def verify_upstream_tag(
     ):
         raise ValueError("в актуальной истории upstream найден некорректный новый тег")
     skips = _validated_skip_records(upstream, skip_registry)
-    if any(entry["tag"] == tag or entry["seq"] == seq for entry in skips):
+    target_record = next(
+        (entry for entry in skips if entry["tag"] == tag or entry["seq"] == seq), None
+    )
+    if target_record is not None:
+        if target_record["status"] == "included":
+            raise ValueError(
+                f"целевой выпуск upstream {tag} включён в {target_record['target']}; отдельная публикация запрещена"
+            )
         raise ValueError("целевой выпуск upstream отмечен неприменимым")
 
     refs: dict[str, list[str]] = {}
@@ -362,7 +393,7 @@ def compare_upstream(
     commit: str,
     skip_registry: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """Сопоставить upstream-релиз с выпуском OpenWrt и учесть отмеченные пропуски."""
+    """Сопоставить upstream-релиз с OpenWrt и учесть неприменимые выпуски."""
     latest = controlled_from_upstream(upstream, commit)
     approved_seq = controlled.get("seq")
     if not isinstance(approved_seq, int) or isinstance(approved_seq, bool) or approved_seq < 1:
@@ -377,8 +408,15 @@ def compare_upstream(
 
     skips = _validated_skip_records(upstream, skip_registry)
 
-    accounted_seq = max([approved_seq, *(entry["seq"] for entry in skips)])
-    not_applicable = [entry for entry in skips if entry["seq"] > approved_seq]
+    not_applicable = [
+        entry for entry in skips
+        if entry["status"] == "not applicable" and entry["seq"] > approved_seq
+    ]
+    included = [
+        entry for entry in skips
+        if entry["status"] == "included" and entry["seq"] > approved_seq
+    ]
+    accounted_seq = max([approved_seq, *(entry["seq"] for entry in not_applicable)])
     approved_provenance = controlled.get("upstream")
     approved_commit = approved_provenance.get("commit") if isinstance(approved_provenance, dict) else None
     return {
@@ -390,6 +428,7 @@ def compare_upstream(
         "accounted_seq": accounted_seq,
         "source_changed": commit != approved_commit,
         "not_applicable": not_applicable,
+        "included": included,
         "update_available": latest_seq > accounted_seq,
     }
 

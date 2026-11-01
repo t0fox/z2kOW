@@ -44,7 +44,7 @@ def _validated_skip_sequences(
     skip_registry: dict[str, Any] | None,
     history_tags: list[str],
     latest_seq: int,
-) -> dict[str, int]:
+) -> dict[str, dict[str, Any]]:
     if skip_registry is None:
         return {}
     schema = skip_registry.get("schema")
@@ -60,20 +60,42 @@ def _validated_skip_sequences(
         raise ValueError("реестр пропусков upstream повреждён")
 
     known_tags = set(history_tags)
-    skipped: dict[str, int] = {}
+    skipped: dict[str, dict[str, Any]] = {}
     seen_sequences: set[int] = set()
+    history_indexes = {tag: index for index, tag in enumerate(history_tags)}
     for record in records:
-        if not isinstance(record, dict) or set(record) != {"tag", "seq", "status", "reason"}:
+        if not isinstance(record, dict):
             raise ValueError("запись реестра пропусков upstream повреждена")
         tag, seq = _version(record.get("tag"), record.get("seq"), "upstream skip")
         reason = record.get("reason")
+        status = record.get("status")
+        expected_keys = {"tag", "seq", "status", "reason"}
+        if status == "included":
+            expected_keys.add("target")
+        if set(record) != expected_keys:
+            raise ValueError("запись реестра пропусков upstream повреждена")
         if seq > latest_seq or tag not in known_tags:
             raise ValueError("пропуск upstream не подтверждён историей текущего манифеста")
-        if record.get("status") != "not applicable" or not isinstance(reason, str) or not reason.strip():
-            raise ValueError("пропуск upstream должен иметь статус not applicable и причину")
+        if (
+            not isinstance(status, str)
+            or status not in {"not applicable", "included"}
+            or not isinstance(reason, str)
+            or not reason.strip()
+        ):
+            raise ValueError("в реестре upstream нужен статус not applicable или included и причина")
+        entry = {"tag": tag, "seq": seq, "status": status, "reason": reason.strip()}
+        if status == "included":
+            target = record.get("target")
+            if (
+                not isinstance(target, str)
+                or target not in known_tags
+                or history_indexes[target] <= history_indexes[tag]
+            ):
+                raise ValueError("целевой выпуск для included-тега upstream отсутствует или стоит раньше него")
+            entry["target"] = target
         if tag in skipped or seq in seen_sequences:
             raise ValueError("реестр пропусков upstream содержит повторный тег или seq")
-        skipped[tag] = seq
+        skipped[tag] = entry
         seen_sequences.add(seq)
     return skipped
 
@@ -234,9 +256,15 @@ def plan_publication(
             raise ValueError("нельзя пропускать промежуточные версии upstream")
         skipped_sequences = _validated_skip_sequences(skip_registry, history_tags, upstream_seq)
         for offset, intermediate_tag in enumerate(release_history[1:-1], start=1):
-            if skipped_sequences.get(intermediate_tag) != controlled_seq + offset:
+            record = skipped_sequences.get(intermediate_tag)
+            if record is None or record["seq"] != controlled_seq + offset:
                 raise ValueError(
-                    f"промежуточный выпуск upstream {intermediate_tag} должен быть отмечен not applicable"
+                    f"промежуточный выпуск upstream {intermediate_tag} должен быть учтён"
+                )
+            if record["status"] == "included" and record.get("target") != upstream_tag:
+                raise ValueError(
+                    f"изменения {intermediate_tag} отмечены как included в {record.get('target')}, "
+                    f"а не в целевой выпуск {upstream_tag}"
                 )
         if existing_product_release:
             raise ValueError(f"Product Release {upstream_tag} already exists; refusing duplicate publication")
