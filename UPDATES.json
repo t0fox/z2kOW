@@ -2,13 +2,13 @@
   "schema": 1,
   "branch": "main",
   "platform": "openwrt",
-  "seq": 152,
-  "current": "p-87.2",
+  "seq": 157,
+  "current": "p-87.7",
   "upstream": {
     "repository": "necronicle/z2k",
     "branch": "z2k-enhanced",
-    "tag": "p-87.2",
-    "commit": "405cf630970784fc92f36f5959ae235ea70d15bb"
+    "tag": "p-87.7",
+    "commit": "89117b13a0b4f8fe5f7ae9d0bec79949590bd0b2"
   },
   "history": [
     {"v": "r-1", "type": "reinstall", "ts": "2026-05-04T00:00:00Z", "ref": "vk-whitelist-ext", "desc": "Extend whitelist with VK service/CDN domains (vkuseraudio/vkuservideo/vk-cdn/mvk/vkpay/vkforms/etc) — fixes broken photo comments and other XHR over non-vk.com VK domains", "changed_files": ["lib/config.sh"]},
@@ -313,64 +313,69 @@
     {"v": "p-86.24", "type": "patch", "ts": "2026-10-26T06:21:04Z", "ref": "p-86.24", "desc": "Стратегии обхода обновлены и выстроены по качеству по замерам: роутеры подберут их заново, а QUIC для YouTube стартует в несколько раз быстрее. Добавлены защита DNS от подмены ответов провайдером и сторож движка, голос Discord переведён на новый фейк. Новый спонсор проекта — Шулепов Александр.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/fake/quic_initial_steamcommunity_com.bin", "files/fake/rdp.bin", "files/fake/stun2.bin", "files/fake/tls_clienthello_sochi_park.bin", "files/fake/tls_clienthello_www_sferum_ru.bin", "files/lists/extra_strats/TCP/RKN/Discord.txt", "files/lists/tcp16_targets.txt", "files/lua/z2k-alert.lua", "files/lua/z2k-nfqws1-compat.lua", "files/lua/z2k-tcp16.lua", "files/ndm/89-z2k-dns-redirect.sh", "files/z2k-diag.sh", "files/z2k-dns-redirect.sh", "files/z2k-nfqueue-selfheal.sh", "files/z2k-scheduler.sh", "files/z2k-tcp16-probe.sh", "lib/config.sh", "lib/config_official.sh", "lib/install.sh", "lib/menu.sh", "lib/strategies.sh", "lib/utils.sh", "quic_strats.ini", "strats_new2.txt", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/credits.js", "webpanel/www/js/pages/dashboard.js", "webpanel/www/js/pages/toggles.js", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k.sh", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
     {"v": "r-87", "type": "reinstall", "ts": "2026-10-26T12:48:23Z", "ref": "r-87", "desc": "Движок обхода обновлён до zapret2 1.0.6. Исправлена редкая ошибка памяти при сборке длинного ClientHello, которая могла уронить движок, а рабочие HTTP-сайты с редиректом на адрес с параметрами больше не уходят в ротацию по ошибке.", "changed_files": ["webpanel/www/index.html", "files/z2k-dns-redirect.sh", "lib/install.sh", "UPDATES.json"], "steps": ["restart-service"], "full_install": true},
     {"v": "p-87.1", "type": "patch", "ts": "2026-10-27T11:01:31Z", "ref": "p-87.1", "desc": "Google Meet в Chrome теперь работает через z2k. Ночное обновление списков у разных роутеров идёт в разное время, а автообновление, выключенное во время ночного ожидания, больше не запускается. Исправлены мелкие ошибки панели, WARP и проверки доменов.", "changed_files": ["webpanel/www/index.html", "files/000-zapret2.sh", "files/S99zapret2.new", "files/lists/extra-domains.txt", "files/lua/z2k-modern-core.lua", "files/lua/z2k-state-persist.lua", "files/z2k-auto-update.sh", "files/z2k-diag.sh", "files/z2k-dns-check.sh", "files/z2k-geosite.sh", "files/z2k-nfqueue-selfheal.sh", "files/z2k-update-lists.sh", "files/z2k-warp.sh", "lib/install.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/cgi/auth.sh", "webpanel/init.d/S96z2k-webpanel", "webpanel/www/js/core/domain-list-editor.js", "webpanel/www/js/core/loadorder.js", "webpanel/www/js/job.js", "webpanel/www/js/pages/extra-domains.js", "webpanel/www/js/pages/toggles.js", "webpanel/www/js/pages/update.js", "webpanel/www/js/pages/warp.js", "webpanel/www/js/router.js", "webpanel/www/style.css", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-amd64", "z2k-warpd/builds/z2k-warpd-linux-arm", "z2k-warpd/builds/z2k-warpd-linux-arm64", "z2k-warpd/builds/z2k-warpd-linux-mips", "z2k-warpd/builds/z2k-warpd-linux-mips64el", "z2k-warpd/builds/z2k-warpd-linux-mipsel", "z2k-warpd/builds/z2k-warpd-linux-mipsle", "z2k-warpd/builds/z2k-warpd-linux-ppc64", "z2k-warpd/builds/z2k-warpd-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-x86", "UPDATES.json"], "steps": ["refresh-binaries", "restart-service"], "full_install": false},
-    {"v": "p-87.2", "type": "patch", "ts": "2026-10-27T18:33:20Z", "ref": "p-87.2", "desc": "В автоподборе QUIC появилась новая стратегия: сайты за Cloudflare по HTTP/3 открываются с первого пакета, без секундной паузы. Найденные ранее настройки сохраняются и переносятся автоматически.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "quic_strats.ini", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false}
+    {"v": "p-87.2", "type": "patch", "ts": "2026-10-27T18:33:20Z", "ref": "p-87.2", "desc": "В автоподборе QUIC появилась новая стратегия: сайты за Cloudflare по HTTP/3 открываются с первого пакета, без секундной паузы. Найденные ранее настройки сохраняются и переносятся автоматически.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "quic_strats.ini", "z2k-detect/builds/z2k-detect-linux-386", "z2k-detect/builds/z2k-detect-linux-amd64", "z2k-detect/builds/z2k-detect-linux-arm", "z2k-detect/builds/z2k-detect-linux-arm64", "z2k-detect/builds/z2k-detect-linux-mips", "z2k-detect/builds/z2k-detect-linux-mips64le", "z2k-detect/builds/z2k-detect-linux-mipsle", "z2k-detect/builds/z2k-detect-linux-ppc64", "z2k-detect/builds/z2k-detect-linux-riscv64", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "refresh-binaries", "restart-service"], "full_install": false},
+    {"v": "p-87.3", "type": "patch", "ts": "2026-10-30T18:56:33Z", "ref": "p-87.3", "desc": "Стратегии обхода пересобраны и выстроены по качеству: для заблокированных сайтов, для YouTube и для видео YouTube отдельно. Порядок получен замером на живом роутере — по 41 цели, с проверкой «а что без обхода», и лидеры перемерены повторно. Теперь роутер начинает подбор с той стратегии, которая на замере открывала почти всё, а не с середины списка. Найденные ранее стратегии подбираются заново, закреплённые вами вручную сохраняются. Исправлен обход блокировки по объёму: на части линий он сам ломал соединения с сайтами за Cloudflare, AWS и Akamai — там, где раньше ничего не открывалось, теперь работает. Добавлен профиль для WireGuard и игрового UDP. DNS-сервер Cloudflare Zero Trust внесён в списки: у кого он прописан на роутере, интернет больше не пропадает целиком. Если вы дочитали до сюда - напишите в чате Z2K 42", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "files/lists/extra-domains.txt", "files/lua/z2k-nfqws1-compat.lua", "files/lua/z2k-tcp16.lua", "files/z2k-config-validator.sh", "files/z2k-diag.sh", "files/z2k-tcp16-probe.sh", "files/z2k-update-lists.sh", "lib/config_official.sh", "lib/install.sh", "strats_new2.txt", "webpanel/cgi/actions.sh", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "restart-service"], "full_install": false},
+    {"v": "p-87.4", "type": "patch", "ts": "2026-10-31T08:47:30Z", "ref": "p-87.4", "desc": "Стратегии для QUIC (HTTP/3 в браузере, YouTube по UDP) пересобраны: вместо 18 вариантов — 10, и каждый повторяет исходную стратегию байт в байт, без наших переделок. Заодно исправлена ошибка, из-за которой часть прежних стратегий отправляла пакеты соединения дважды. Подбор QUIC начнётся заново; закреплённые вручную стратегии сохраняются, если такая техника осталась в наборе. Поправка к описанию p-87.3: добавленный там профиль UDP — для WireGuard и MTProto, игры он не касается.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "lib/config_official.sh", "quic_strats.ini", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "restart-service"], "full_install": false},
+    {"v": "p-87.5", "type": "patch", "ts": "2026-10-31T09:27:12Z", "ref": "p-87.5", "desc": "В благодарностях появился спонсор проекта Андрюшка — спасибо за поддержку. Диагностика больше не пугает на роутерах со старым ядром: там она ошибочно писала, что автоподбор стратегий выключен и свободной памяти 0 МБ, хотя всё работало. Обновление больше не выдаёт ложное предупреждение при проверке конфига.", "changed_files": ["webpanel/www/index.html", "files/z2k-config-validator.sh", "files/z2k-diag.sh", "lib/menu.sh", "webpanel/www/js/pages/credits.js", "UPDATES.json"], "steps": [], "full_install": false},
+    {"v": "p-87.6", "type": "patch", "ts": "2026-10-31T14:54:19Z", "ref": "p-87.6", "desc": "В WARP появились исключения: адреса, подсети и домены, которые никогда не идут через туннель — например, Госуслуги, банки и маркетплейсы, которые не открываются с иностранного адреса. Удобно, когда через WARP отправлен весь трафик сети или устройства. Карточка «Исключения» в разделе WARP, применяется сразу. Исправлен WARP с подпиской WARP+: туннель поднимался, но z2k считал его нерабочим и без конца перебирал адреса.", "changed_files": ["webpanel/www/index.html", "files/z2k-warp.sh", "webpanel/cgi/actions.sh", "webpanel/cgi/api.sh", "webpanel/www/js/pages/warp.js", "z2k-warpd/builds/z2k-warpd-linux-amd64", "z2k-warpd/builds/z2k-warpd-linux-arm", "z2k-warpd/builds/z2k-warpd-linux-arm64", "z2k-warpd/builds/z2k-warpd-linux-mips", "z2k-warpd/builds/z2k-warpd-linux-mips64el", "z2k-warpd/builds/z2k-warpd-linux-mipsel", "z2k-warpd/builds/z2k-warpd-linux-mipsle", "z2k-warpd/builds/z2k-warpd-linux-ppc64", "z2k-warpd/builds/z2k-warpd-linux-riscv64", "z2k-warpd/builds/z2k-warpd-linux-x86", "UPDATES.json"], "steps": ["refresh-binaries"], "full_install": false},
+    {"v": "p-87.7", "type": "patch", "ts": "2026-10-31T15:40:02Z", "ref": "p-87.7", "desc": "Стратегии для QUIC (HTTP/3 в браузере, YouTube по UDP) возвращены в полном составе: в прошлом обновлении часть их была убрана по ошибке. Теперь их 20 — прежние, плюс две новые, и те, что повторяют известные стратегии, совпадают с ними один в один. Найденные роутером стратегии для QUIC сохраняются.", "changed_files": ["webpanel/www/index.html", "files/S99zapret2.new", "quic_strats.ini", "UPDATES.json"], "steps": ["regen-strategies", "regen-config", "validate-config", "restart-service"], "full_install": false}
   ],
   "artifacts": {
     "arm64": {
       "filename": "openwrt-rootfs-arm64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-arm64.tar.gz",
-      "sha256": "987f24bca3e4558519b7d2b04f049897fd35e0d68d273b2fd60704b15b2cbb98",
-      "size_bytes": 13605038,
-      "unpacked_size_bytes": 31681467
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-arm64.tar.gz",
+      "sha256": "55790597dcdafb06f38574f74c2bac737351bda588e9bb588c421bbbe79e5e80",
+      "size_bytes": 13620358,
+      "unpacked_size_bytes": 31697860
     },
     "arm": {
       "filename": "openwrt-rootfs-arm.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-arm.tar.gz",
-      "sha256": "b02c35e746850b96d6ee9aa73f1502b728315a58520270baf81723cb08267ea2",
-      "size_bytes": 14041388,
-      "unpacked_size_bytes": 32841539
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-arm.tar.gz",
+      "sha256": "65102cc546ab77e2b7ffce6a663846baf3b2f2eaa40991bbd2fa6260d38da6b7",
+      "size_bytes": 14056938,
+      "unpacked_size_bytes": 32857796
     },
     "x86_64": {
       "filename": "openwrt-rootfs-x86_64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-x86_64.tar.gz",
-      "sha256": "9b4f871486d1f2a265cae10abf0573cbfe1b84d3c7957a9d1ae7f4ed3146c5e4",
-      "size_bytes": 14547533,
-      "unpacked_size_bytes": 33814219
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-x86_64.tar.gz",
+      "sha256": "f65e9d4568c8be05c03ef8a13873f7e265c309f8048108167328093992729f34",
+      "size_bytes": 14564367,
+      "unpacked_size_bytes": 33859620
     },
     "x86": {
       "filename": "openwrt-rootfs-x86.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-x86.tar.gz",
-      "sha256": "b2eb969276877f6176e2c94dd6854e6eceeb15a2de0c2973c3aa01de923c531a",
-      "size_bytes": 14074071,
-      "unpacked_size_bytes": 32560107
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-x86.tar.gz",
+      "sha256": "3919c773ae9e398f85a9ee99f93142b162896473c44862b9e70e2943f42e3543",
+      "size_bytes": 14089369,
+      "unpacked_size_bytes": 32602476
     },
     "mips": {
       "filename": "openwrt-rootfs-mips.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-mips.tar.gz",
-      "sha256": "3e99bb9a1100fea93d90795579ddbe244d6c04f81d9c16aa08a7c59b577b6e55",
-      "size_bytes": 13903002,
-      "unpacked_size_bytes": 36092920
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-mips.tar.gz",
+      "sha256": "b4ac2e96a68fb61041b5c6b5eb5757a6db8f1086eb915ad4f17f9631538a191c",
+      "size_bytes": 13919556,
+      "unpacked_size_bytes": 36162425
     },
     "mipsel": {
       "filename": "openwrt-rootfs-mipsel.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-mipsel.tar.gz",
-      "sha256": "38a8484ad298d0cef1dfab3de5995a8dfd9b3be275b2a0514cb4fd930fbf4855",
-      "size_bytes": 13841701,
-      "unpacked_size_bytes": 36096828
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-mipsel.tar.gz",
+      "sha256": "95b76955a8472a3d0e60ab4988d613b802f9a2b152967a10053a358da72cdc8d",
+      "size_bytes": 13859594,
+      "unpacked_size_bytes": 36166333
     },
     "riscv64": {
       "filename": "openwrt-rootfs-riscv64.tar.gz",
-      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs-riscv64.tar.gz",
-      "sha256": "34391f54a66694467aeb99d1be1794349f891c541d0f0e3516da2084e969ea43",
-      "size_bytes": 13876777,
-      "unpacked_size_bytes": 31903919
+      "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs-riscv64.tar.gz",
+      "sha256": "651ae38da827638aa5cd5daab1be18740a5b33cef2ca97e104caeb04b5622cea",
+      "size_bytes": 13897978,
+      "unpacked_size_bytes": 31984616
     }
   },
   "artifact": {
     "filename": "openwrt-rootfs.tar.gz",
-    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-a6a41facea1f9f52c67c45d48174a47714a4631e/openwrt-rootfs.tar.gz",
-    "sha256": "f5e27e33b1f29b91efc594f8795eed1c9db39c33435b8a50aaab22e38ab7c1ac",
-    "size_bytes": 79892451
+    "url": "https://github.com/t0fox/z2kOW/releases/download/openwrt-7c7f8bd4ff7b05d34a2de9bcf8888a44bed3114e/openwrt-rootfs.tar.gz",
+    "sha256": "f6bb412771f357a0863a2cbdad6f59f61636fa9937d09cbe8224286e3c0aacfb",
+    "size_bytes": 79994964
   },
   "signing": {
     "key_id": "916b1459a03961d66af48ddb2165afbed3c0d7445f75c8b7c95adbb5fc044bae"
