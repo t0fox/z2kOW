@@ -25,6 +25,8 @@ z2k_ow_uninstall_paths_load() {
     . "$_adapter/firewall.sh" || return 1
     . "$_adapter/tg.sh" || return 1
     . "$_adapter/rt.sh" || return 1
+    . "$_adapter/gvsub.sh" || return 1
+    . "$_adapter/preflight.sh" || return 1
     Z2K_WARP_SOURCE_ONLY=1
     export Z2K_WARP_SOURCE_ONLY
     . "$_adapter/warp.sh" || return 1
@@ -424,7 +426,9 @@ z2k_ow_uninstall() (
 
     # Keep exact OpenWrt-owned service integrations removable even if an older
     # stop path missed them. Each adapter removes only its own nft/UCI entries.
-    _z2k_ow_uninstall_progress "очищаю принадлежащие интеграции Telegram, RT, WARP, Insta и TikTok"
+    _z2k_ow_uninstall_progress "очищаю принадлежащие интеграции Googlevideo, Telegram, RT, WARP, Insta и TikTok"
+    z2k_ow_gvsub cleanup || _rc=1
+    z2k_ow_preflight_remove || _rc=1
     z2k_ow_tg cleanup || _rc=1
     z2k_ow_rt cleanup || _rc=1
     z2k_ow_warp cleanup || _rc=1

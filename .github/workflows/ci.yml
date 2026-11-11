@@ -727,6 +727,7 @@ jobs:
           Z2K_FORK_DIR: ${{ github.workspace }}/zapret2-z2k-fork
         run: |
           lua5.3 tests/test_tcp16_lua.lua
+          lua5.3 tests/test_preflight_lua.lua
           lua5.3 tests/test_alert_detector.lua
           lua5.3 tests/test_http_classifier.lua
           lua5.3 tests/test_quic_silence_detector.lua

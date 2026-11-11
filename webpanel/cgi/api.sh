@@ -305,6 +305,8 @@ case "$method $path" in
         category_discord_voice=$(read_flag "Z2K_CATEGORY_DISCORD_VOICE" "$CONFIG_FILE" "1")
         yt_quic_off=$(read_flag "Z2K_YT_QUIC_OFF" "$CONFIG_FILE" "0")
         quic_off=$(read_flag "Z2K_QUIC_OFF" "$CONFIG_FILE" "0")
+        gv_subst=$(read_flag "Z2K_GV_SUBST" "$CONFIG_FILE" "0")
+        gv_preflight=$(read_flag "Z2K_GV_SERVER_REPLY2" "$CONFIG_FILE" "0")
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
         dns_redirect=$(read_flag "Z2K_DNS_REDIRECT" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
@@ -377,6 +379,8 @@ case "$method $path" in
         printf ',"category_discord_voice":';  json_string "${category_discord_voice:-1}"
         printf ',"yt_quic_off":';             json_string "${yt_quic_off:-0}"
         printf ',"quic_off":';                json_string "${quic_off:-0}"
+        printf ',"gv_subst":';                 json_string "${gv_subst:-0}"
+        printf ',"gv_preflight":';             json_string "${gv_preflight:-0}"
         printf ',"dynamic_ttl":';            json_string "${dynamic_ttl:-1}"
         printf ',"ppe":';                    json_string "${ppe:-1}"
         printf ',"fastroute":';              json_string "${fastroute:-1}"
@@ -447,6 +451,8 @@ case "$method $path" in
         category_discord_voice=$(read_flag "Z2K_CATEGORY_DISCORD_VOICE" "$CONFIG_FILE" "1")
         yt_quic_off=$(read_flag "Z2K_YT_QUIC_OFF" "$CONFIG_FILE" "0")
         quic_off=$(read_flag "Z2K_QUIC_OFF" "$CONFIG_FILE" "0")
+        gv_subst=$(read_flag "Z2K_GV_SUBST" "$CONFIG_FILE" "0")
+        gv_preflight=$(read_flag "Z2K_GV_SERVER_REPLY2" "$CONFIG_FILE" "0")
         dynamic_ttl=$(read_flag "Z2K_DYNAMIC_TTL" "$CONFIG_FILE" "1")
         dns_redirect=$(read_flag "Z2K_DNS_REDIRECT" "$CONFIG_FILE" "1")
         ppe=$(read_flag "Z2K_PPE_DEOFFLOAD" "$CONFIG_FILE" "1")
@@ -461,6 +467,8 @@ case "$method $path" in
         printf ',"category_discord_voice":';   json_string "${category_discord_voice:-1}"
         printf ',"yt_quic_off":';              json_string "${yt_quic_off:-0}"
         printf ',"quic_off":';                 json_string "${quic_off:-0}"
+        printf ',"gv_subst":';                  json_string "${gv_subst:-0}"
+        printf ',"gv_preflight":';              json_string "${gv_preflight:-0}"
         printf ',"dynamic_ttl":';             json_string "${dynamic_ttl:-1}"
         printf ',"dns_redirect":';            json_string "${dns_redirect:-1}"
         printf ',"ppe":';                     json_string "${ppe:-1}"
@@ -572,6 +580,8 @@ case "$method $path" in
     "POST /toggle/category-discord-voice"|\
     "POST /toggle/yt-quic-off"|\
     "POST /toggle/quic-off"|\
+    "POST /toggle/gv-subst"|\
+    "POST /toggle/gv-preflight"|\
     "POST /toggle/autohostlist")
         body=$(read_body)
         val=$(form_value "$body" "value")
@@ -586,6 +596,8 @@ case "$method $path" in
             /toggle/category-discord-voice) _toggle_fn=toggle_category_discord_voice; _label="Discord Voice / STUN" ;;
             /toggle/yt-quic-off)     _toggle_fn=toggle_yt_quic_off;     _label="YouTube без QUIC" ;;
             /toggle/quic-off)        _toggle_fn=toggle_quic_off;        _label="Весь QUIC через TCP" ;;
+            /toggle/gv-subst)        _toggle_fn=toggle_gv_subst;        _label="Подмена адресов Googlevideo" ;;
+            /toggle/gv-preflight)    _toggle_fn=toggle_gv_preflight;    _label="Проверка ответа сервера YouTube" ;;
             /toggle/game-warp)       _toggle_fn=toggle_game_warp;       _label="WARP-туннель" ;;
             /toggle/customd)         _toggle_fn=toggle_customd;         _label="custom.d" ;;
             /toggle/dynamic-ttl)     _toggle_fn=toggle_dynamic_ttl;     _label="Динамический TTL" ;;

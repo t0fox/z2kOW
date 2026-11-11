@@ -200,14 +200,14 @@ global.navigator = { clipboard: { writeText: async () => {} }, userAgent: "node"
 const statusFixture = (process.env.Z2K_OW_CAPS === "1")
     ? { ok:true, installed:true, running:true, service:"active",
         toggles:{game_warp:"0",category_youtube:"1",category_rkn:"1",
-                 category_discord_voice:"1",yt_quic_off:"0",quic_off:"0",customd:"0",dynamic_ttl:"1",
+                 category_discord_voice:"1",gv_preflight:"0",yt_quic_off:"0",gv_subst:"0",quic_off:"0",customd:"0",dynamic_ttl:"1",
                  ppe:"1",fastroute:"0",dns_redirect:"0",auto_update:"1",autohostlist:"0"},
         tunnel:{running:false}, platform:"openwrt",
         capabilities:{policy:false,ppe:false,tcp16:false,diag:false,
                       warp:true,telegram:true,uninstall:false} }
     : { ok:true, installed:"r-86.5", running:true, service:"running",
         toggles:{game_warp:"0",category_youtube:"1",category_rkn:"1",
-                 category_discord_voice:"1",yt_quic_off:"0",quic_off:"0",customd:"0",dynamic_ttl:"1",
+                 category_discord_voice:"1",gv_preflight:"0",yt_quic_off:"0",gv_subst:"0",quic_off:"0",customd:"0",dynamic_ttl:"1",
                  ppe:"1",fastroute:"0",dns_redirect:"0",auto_update:"1",autohostlist:"0"}, tunnel:{running:true} };
 if (process.env.Z2K_TEST_TG_FRESHNESS === "1") {
   statusFixture.tunnel = { running:true, workers:["worker.example"] };

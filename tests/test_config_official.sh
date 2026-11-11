@@ -230,8 +230,9 @@ run_generator() {
         cp "$SCRIPT_DIR/files/lua/z2k-alert.lua" "$root/lua/" 2>/dev/null || true
         cp "$SCRIPT_DIR/files/lua/z2k-quic-silence.lua" "$root/lua/" 2>/dev/null || true
     }
+    cp "$SCRIPT_DIR/files/lua/z2k-preflight.lua" "$root/lua/" 2>/dev/null || true
     [ -n "$extra_cb" ] && eval "$extra_cb \"$root\""
-    ( ZAPRET2_DIR="$root" generate_nfqws2_opt_from_strategies 2>/dev/null )
+    ( ZAPRET2_DIR="$root" Z2K_LUA_DIR="$root/lua" generate_nfqws2_opt_from_strategies 2>/dev/null )
     rm -rf "$root"
 }
 
@@ -257,6 +258,40 @@ for _voice_arm in 1 2 3 4 5 6; do
         "--lua-desync=send:dir=out:strategy=$_voice_arm --lua-desync=drop:dir=out:strategy=$_voice_arm" \
         "$_voice_line"
 done
+
+printf "\n--- Googlevideo address replacement stays opt-in ---\n"
+Z2K_GVSUB_IPS="$MOCK_DIR/gv-ips-contract.txt"
+export Z2K_GVSUB_IPS
+_gvsub_on=$(run_generator gvsub-on 'ENABLED=1
+Z2K_GV_SUBST=1' '')
+assert_contains "GV replacement restricts the profile to its address file" \
+    "--ipset=$Z2K_GVSUB_IPS" "$_gvsub_on"
+assert_contains "GV address file has the IPv4 empty-set sentinel" \
+    '0.0.0.0/32' "$(cat "$Z2K_GVSUB_IPS")"
+assert_contains "GV address file has the IPv6 empty-set sentinel" \
+    '::/128' "$(cat "$Z2K_GVSUB_IPS")"
+_gvsub_off=$(run_generator gvsub-off 'ENABLED=1
+Z2K_GV_SUBST=0' '')
+assert_not_contains "disabled GV replacement adds no address filter" \
+    '--ipset=' "$_gvsub_off"
+rm -f "$Z2K_GVSUB_IPS"
+
+_gvpreflight_on=$(run_generator gvpreflight-on 'ENABLED=1
+Z2K_GV_SERVER_REPLY2=1' '')
+_gvpreflight_line=$(printf '%s\n' "$_gvpreflight_on" \
+    | awk -f "$SCRIPT_DIR/tests/lib/nfqws2_flatten.awk" | grep -F 'key=gv_tcp' | head -1)
+assert_contains "preflight is the first Googlevideo instance" \
+    '--in-range=a --out-range=a --payload=all --lua-desync=z2k_preflight:' \
+    "$_gvpreflight_line"
+case "$_gvpreflight_line" in
+    *'--lua-desync=z2k_preflight:'*'--lua-desync=circular:'*)
+        TESTS_PASSED=$((TESTS_PASSED + 1)); printf '[PASS] preflight precedes the existing GV strategy pool\n' ;;
+    *) TESTS_FAILED=$((TESTS_FAILED + 1)); printf '[FAIL] preflight precedes the existing GV strategy pool\n' ;;
+esac
+_gvpreflight_off=$(run_generator gvpreflight-off 'ENABLED=1
+Z2K_GV_SERVER_REPLY2=0' '')
+assert_not_contains "disabled preflight leaves the Googlevideo pool unchanged" \
+    'z2k_preflight' "$_gvpreflight_off"
 
 # Профиль ЦЕЛИКОМ из готового config-файла.
 #
@@ -479,7 +514,7 @@ assert_contains "reinstall: FLOWOFFLOAD recovered from .old backup" "FLOWOFFLOAD
 
 printf "\n--- DNS redirect and TCP16 flags survive config regeneration ---\n"
 test_openwrt_flags() {
-    local tag="$1" dns="$2" sni="$3" root="${MOCK_DIR}/ow-flags-$1"
+    local tag="$1" dns="$2" sni="$3" preflight="${4:-}" root="${MOCK_DIR}/ow-flags-$1"
     rm -rf "$root"
     mkdir -p "$root/extra_strats/TCP/YT" "$root/extra_strats/TCP/YT_GV" \
         "$root/extra_strats/TCP/RKN" "$root/extra_strats/UDP/YT" "$root/lists"
@@ -491,16 +526,23 @@ test_openwrt_flags() {
     echo "--filter-tcp=443 --filter-l7=tls --lua-desync=circular:fails=3:time=60:key=rkn_tcp --lua-desync=fake:strategy=1" \
         > "$root/extra_strats/TCP/RKN/Strategy.txt"
     printf 'ENABLED=1\nZ2K_DNS_REDIRECT=%s\nZ2K_SNI_STALL=%s\n' "$dns" "$sni" > "$root/config"
+    [ -n "$preflight" ] && printf 'Z2K_GV_SERVER_REPLY2=%s\n' "$preflight" >> "$root/config"
     ( ZAPRET2_DIR="$root" create_official_config "$root/config" >/dev/null 2>&1 )
-    grep -E '^Z2K_(DNS_REDIRECT|SNI_STALL)=' "$root/config"
+    grep -E '^Z2K_(DNS_REDIRECT|SNI_STALL|GV_SERVER_REPLY2)=' "$root/config"
     rm -rf "$root"
 }
-OW_FLAGS=$(test_openwrt_flags "disabled" "0" "0")
+OW_FLAGS=$(test_openwrt_flags "disabled" "0" "0" "0")
 assert_contains "DNS redirect off survives regeneration" "Z2K_DNS_REDIRECT=0" "$OW_FLAGS"
 assert_contains "TCP16 SNI stall off survives regeneration" "Z2K_SNI_STALL=0" "$OW_FLAGS"
-OW_FLAGS=$(test_openwrt_flags "defaults" "1" "1")
+assert_contains "video preflight off survives regeneration" "Z2K_GV_SERVER_REPLY2=0" "$OW_FLAGS"
+OW_FLAGS=$(test_openwrt_flags "defaults" "1" "1" "1")
 assert_contains "DNS redirect defaults on" "Z2K_DNS_REDIRECT=1" "$OW_FLAGS"
 assert_contains "TCP16 SNI stall defaults on" "Z2K_SNI_STALL=1" "$OW_FLAGS"
+assert_contains "video preflight on survives regeneration" "Z2K_GV_SERVER_REPLY2=1" "$OW_FLAGS"
+OW_FLAGS=$(test_openwrt_flags "preflight-default" "1" "1")
+assert_contains "video preflight defaults off when absent" "Z2K_GV_SERVER_REPLY2=0" "$OW_FLAGS"
+OW_FLAGS=$(test_openwrt_flags "preflight-invalid" "1" "1" "enabled")
+assert_contains "invalid video preflight value normalizes off" "Z2K_GV_SERVER_REPLY2=0" "$OW_FLAGS"
 
 printf "\n--- TikTok manual CDN choice survives official config regeneration ---\n"
 test_tiktok_manual_preserve() {

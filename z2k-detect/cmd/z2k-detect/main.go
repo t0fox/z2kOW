@@ -60,6 +60,7 @@ import (
 
 	"github.com/necronicle/z2k/z2k-detect/internal/classify"
 	"github.com/necronicle/z2k/z2k-detect/internal/decision"
+	"github.com/necronicle/z2k/z2k-detect/internal/gvsub"
 	"github.com/necronicle/z2k/z2k-detect/internal/prober"
 )
 
@@ -97,7 +98,8 @@ commands:
   quic <domain>             то же для QUIC/UDP: чем режут датаграммы
   voice                     голос Дискорда; адрес берётся из ИДУЩЕГО разговора
   tcp16 [-asn N] [-scan F]  проба на блок по объёму соединения; -scan ищет проходящее имя
-  dnsms -server IP           время обычного UDP-запроса к DNS, в миллисекундах`)
+  dnsms -server IP           время обычного UDP-запроса к DNS, в миллисекундах
+  gvsub                      служба подмены плохих адресов googlevideo`)
 }
 
 func main() {
@@ -128,6 +130,8 @@ func main() {
 		tcp16Cmd(ctx, args[1:])
 	case "dnsms":
 		dnsmsCmd(ctx, args[1:])
+	case "gvsub":
+		gvsubCmd(ctx, args[1:])
 	default:
 		fatal("unknown command: %s", args[0])
 	}
@@ -497,4 +501,28 @@ func joinIPs(ips []string) string {
 func fatal(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", a...)
 	os.Exit(1)
+}
+
+func gvsubCmd(ctx context.Context, rest []string) {
+	fs := flag.NewFlagSet("gvsub", flag.ExitOnError)
+	dnsQueue := fs.Uint("queue", gvsub.DNSQueue, "очередь NFQUEUE ответов DNS")
+	engineQueue := fs.Uint("engine-queue", gvsub.EngineQueue, "очередь NFQUEUE nfqws2")
+	status := fs.String("status", "/tmp/z2k/gvsub.json", "файл состояния службы")
+	conntrack := fs.String("conntrack", "/proc/net/nf_conntrack", "таблица conntrack")
+	noIPv6 := fs.Bool("no-ipv6", false, "IPv6 выключен в конфиге OpenWrt")
+	config := fs.String("config", "/etc/z2k/config", "конфиг z2k")
+	ipfile := fs.String("ipfile", "/tmp/z2k/gv-ips.txt", "список адресов для --ipset")
+	whitelist := fs.String("whitelist", "/etc/z2k/lists/whitelist.txt", "список исключённых имён")
+	_ = fs.Parse(rest)
+	if *dnsQueue > 65535 || *engineQueue > 65535 {
+		fatal("gvsub: номер очереди вне диапазона")
+	}
+	err := gvsub.Run(ctx, gvsub.Config{
+		Queue: uint16(*dnsQueue), EngineQueue: uint16(*engineQueue),
+		StatusPath: *status, Conntrack: *conntrack, NoIPv6: *noIPv6,
+		ConfigPath: *config, IPFile: *ipfile, Whitelist: *whitelist,
+	})
+	if err != nil {
+		fatal("gvsub: %v", err)
+	}
 }

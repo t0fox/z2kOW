@@ -40,6 +40,8 @@ z2k_load_adapter() {
     . "$Z2K_ROOT/platform/openwrt/customd.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/tg.sh" || return 1
     . "$Z2K_ROOT/platform/openwrt/rt.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/gvsub.sh" || return 1
+    . "$Z2K_ROOT/platform/openwrt/preflight.sh" || return 1
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
     # shellcheck disable=SC1090,SC1091
     . "$Z2K_ROOT/platform/openwrt/warp.sh" || return 1
@@ -114,6 +116,7 @@ _z2k_ow_wait_feature() {
         case "$_what" in
             tg) z2k_ow_tg_running 2>/dev/null && return 0 ;;
             rt) z2k_ow_rt_running 2>/dev/null && return 0 ;;
+            gvsub) z2k_ow_gvsub_running 2>/dev/null && return 0 ;;
         esac
         _z2k_ow_before_deadline "$_deadline" || break
         _z2k_ow_poll_sleep
@@ -134,6 +137,7 @@ z2k_ow_start_rollback() {
     z2k_ow_customd_stop_instances 2>/dev/null || true
     z2k_ow_tg 0 >/dev/null 2>&1
     z2k_ow_rt 0 >/dev/null 2>&1
+    z2k_ow_gvsub 0 >/dev/null 2>&1
     z2k_ow_warp 0 >/dev/null 2>&1
     if [ "${INIT_APPLY_FW:-1}" = "1" ]; then
         if z2k_ow_fw_remove >/dev/null 2>&1; then
@@ -367,6 +371,7 @@ _z2k_ow_start_service_impl() {
     # RT proxy (Stage 4): третий instance + DNS-пины + nft. DNS re-assert
     # идемпотентен — gap при рестарте нет (контракт stop_proxy).
     z2k_ow_rt 1 || { z2k_ow_start_rollback; return 1; }
+    z2k_ow_gvsub 1 || { z2k_ow_start_rollback; return 1; }
     # WARP (Stage 5): четвёртый instance + sets; PBR — только если proven
     # ready (на старте почти surely нет; tick доведёт). Boot никогда не
     # валит сервис (внутри — soft-fail); warn-only и здесь.
@@ -422,6 +427,9 @@ _z2k_ow_service_started_impl() {
     fi
     if z2k_ow_rt_wanted 2>/dev/null; then
         _z2k_ow_wait_feature rt && z2k_ow_rt_verify || { z2k_ow_start_rollback; return 1; }
+    fi
+    if z2k_ow_gvsub_wanted 2>/dev/null; then
+        _z2k_ow_wait_feature gvsub && z2k_ow_gvsub_verify || { z2k_ow_start_rollback; return 1; }
     fi
     : > "${Z2K_CORE_READY:-$Z2K_RUN/core-ready}" || { z2k_ow_start_rollback; return 1; }
     # Защита обычного DNS — отдельная fail-open функция на nftables.
@@ -492,6 +500,7 @@ _z2k_ow_stop_service_impl() {
     z2k_ow_tg 0 || _rc=1
     # RT full stop: redirect/guard + DNS-пины снять (процесс — через procd).
     z2k_ow_rt 0 || _rc=1
+    z2k_ow_gvsub 0 || _rc=1
     # WARP full stop: PBR down первым, затем chains (sets оставить).
     z2k_ow_warp 0 || _rc=1
     # Демона останавливает сам procd; снимаем только firewall.

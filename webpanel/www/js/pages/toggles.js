@@ -476,8 +476,12 @@ function renderTgDiagnostics(report) {
 const TOGGLE_DEFS = [
   { key: "category_youtube", name: "YouTube",
     desc: "Обход для YouTube и Googlevideo, включая QUIC. Выключите, чтобы эти сервисы работали напрямую." },
+  { key: "gv_preflight", name: "Видео YouTube: проверка ответа сервера",
+    desc: "Для адресов, которые не начинают TLS-ответ: роутер проверяет соединение сам, затем повторяет подключение устройства. Возможна короткая задержка; если проверка не удалась, остаются штатные стратегии. Только TCP по IPv4." },
   { key: "yt_quic_off", name: "YouTube без QUIC",
     desc: "Включите, если видео YouTube долго начинает воспроизведение. Роутер сразу переводит подключение с QUIC на обычный TCP." },
+  { key: "gv_subst", name: "Подмена адресов Googlevideo",
+    desc: "Если сервер YouTube не отвечает, роутер переключает соединение на проверенный соседний адрес. Функция выключена до ручного включения." },
   { key: "quic_off", name: "Весь QUIC через TCP",
     desc: "Включите, если провайдер режет QUIC ко всем сайтам. Браузер и приложения сразу перейдут на TCP; домены из исключений не затрагиваются." },
   { key: "category_rkn", name: "RKN",
@@ -655,7 +659,9 @@ const TOGGLE_API_NAME = {
   category_youtube: "category-youtube",
   category_rkn: "category-rkn",
   category_discord_voice: "category-discord-voice",
+  gv_preflight: "gv-preflight",
   yt_quic_off: "yt-quic-off",
+  gv_subst: "gv-subst",
   quic_off: "quic-off",
   customd: "customd",
   dynamic_ttl: "dynamic-ttl",
@@ -1902,7 +1908,7 @@ export async function renderToggles() {
         const state = row.querySelector("#fastroute-status");
         if (state) state.textContent = s.toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
       }
-      setLockAware(box, t.key === "yt_quic_off" && s.toggles.category_youtube !== "1");
+      setLockAware(box, ["gv_preflight", "yt_quic_off", "gv_subst"].includes(t.key) && s.toggles.category_youtube !== "1");
       // Повторная загрузка не должна вешать второй обработчик: два POST'а
       // на один клик — два конкурентных рестарта сервиса.
       if (!box.dataset.wired) {
@@ -2286,7 +2292,9 @@ async function toggleClick(key, box, refreshToggles) {
     category_youtube: "YouTube",
     category_rkn: "RKN",
     category_discord_voice: "Discord Voice / STUN",
+    gv_preflight: "Проверка ответа сервера YouTube",
     yt_quic_off: "YouTube без QUIC",
+    gv_subst: "Подмена адресов Googlevideo",
     quic_off: "Весь QUIC через TCP",
     customd: "custom.d",
     dynamic_ttl: "Динамический TTL",

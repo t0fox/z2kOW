@@ -16,7 +16,7 @@ code() { for _d in $SRC; do find "$_d" -type d -name target -prune -o -type f ! 
 # Экземпляры nfqws2, Telegram, RT и customd принадлежат z2k; WARP и панель
 # имеют собственные службы. z2k-detect запускается вручную как CLI.
 _n="$(grep --exclude-dir=target -rl 'procd_set_param command' "$REPO/platform/openwrt" 2>/dev/null | wc -l)"
-assert_eq "шесть command-определений (init + customd + tg.sh + rt.sh + warp.sh + init панели)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "семь файлов procd-команд (ядро, customd, Telegram, RT, GVSUB, WARP, панель)" "7" "$(printf '%s' "$_n" | tr -d ' ')"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/files/etc/init.d/z2k" >/dev/null 2>&1 \
     && _t_ok || _t_bad "владелец nfqws2 — не init.d/z2k"
 grep -rl 'procd_set_param command' "$REPO/platform/openwrt/tg.sh" >/dev/null 2>&1 \
@@ -100,7 +100,7 @@ assert_eq "optbase: 1 определение + 2 вызова (core + customd)" 
 _n="$(ls "$REPO"/platform/openwrt/files/etc/init.d/ 2>/dev/null | wc -l)"
 assert_eq "три procd-службы (ядро + WARP + панель)" "3" "$(printf '%s' "$_n" | tr -d ' ')"
 _n="$(grep --exclude-dir=target -rl 'procd_open_instance' "$REPO/platform/openwrt" 2>/dev/null | wc -l)"
-assert_eq "шесть instance (4 ядра + customd + 1 панели)" "6" "$(printf '%s' "$_n" | tr -d ' ')"
+assert_eq "семь файлов с procd_open_instance (включая GVSUB)" "7" "$(printf '%s' "$_n" | tr -d ' ')"
 # ifsets: единственный писатель — zapret2 (мы только вызываем reload).
 # fw_verify читает wanif; uninstall проверяет точный whitelist таблицы. Оба
 # упоминания только читают состояние, поэтому исключаем их из поиска писателей.

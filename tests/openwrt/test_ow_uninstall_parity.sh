@@ -106,6 +106,12 @@ mkdir -p "$Z2K_ROOT/platform/openwrt" "$Z2K_ETC/conf" "$Z2K_ETC/webpanel" \
 for _f in paths.sh env.sh release.sh release_state.sh webpanel.sh uninstall.sh retire-dns.sh; do
     cp "$REPO/platform/openwrt/$_f" "$Z2K_ADAPTER_DIR/$_f"
 done
+cat > "$Z2K_ADAPTER_DIR/gvsub.sh" <<'EOF'
+z2k_ow_gvsub() { echo "gvsub-$1" >> "$Z2K_UNINSTALL_TEST_LOG"; }
+EOF
+cat > "$Z2K_ADAPTER_DIR/preflight.sh" <<'EOF'
+z2k_ow_preflight_remove() { echo preflight-cleanup >> "$Z2K_UNINSTALL_TEST_LOG"; }
+EOF
 mkdir -p "$T/bin" "$T/etc/config" "$T/etc/rc.d"
 
 # Replace adapter files only inside this disposable fixture. These stand-ins
@@ -348,6 +354,8 @@ assert_contains "uninstall stops panel service before deleting it" "$Z2K_UNINSTA
 assert_contains "uninstall removes upstream core scheduled work" "$Z2K_UNINSTALL_TEST_LOG" 'cron'
 assert_contains "uninstall removes Telegram integration" "$Z2K_UNINSTALL_TEST_LOG" 'tg-cleanup'
 assert_contains "uninstall removes RT integration" "$Z2K_UNINSTALL_TEST_LOG" 'rt-cleanup'
+assert_contains "uninstall removes Googlevideo integration" "$Z2K_UNINSTALL_TEST_LOG" 'gvsub-cleanup'
+assert_contains "uninstall removes video preflight rules" "$Z2K_UNINSTALL_TEST_LOG" 'preflight-cleanup'
 assert_contains "uninstall removes WARP integration" "$Z2K_UNINSTALL_TEST_LOG" 'warp-cleanup'
 assert_contains "uninstall removes Insta host integration" "$Z2K_UNINSTALL_TEST_LOG" 'insta-cleanup'
 assert_contains "uninstall removes TikTok DNS integration" "$Z2K_UNINSTALL_TEST_LOG" 'tiktok-cleanup'
@@ -496,7 +504,7 @@ printf 'ordinary user config\n' > "$T/no-warp/etc/z2k/config"
 
 # A cleanup error is loud and leaves product/user metadata available for retry.
 mkdir -p "$Z2K_ROOT/platform/openwrt" "$Z2K_ETC/state/warp" "$Z2K_ZAPRET2_RUNTIME"
-for _f in schedule firewall tg rt warp insta-ip tiktok; do
+for _f in schedule firewall tg rt gvsub preflight warp insta-ip tiktok; do
     cp "$REPO/platform/openwrt/$_f.sh" "$Z2K_ROOT/platform/openwrt/$_f.sh"
 done
 cp "$REPO/platform/openwrt/uninstall.sh" "$Z2K_ROOT/platform/openwrt/uninstall.sh"

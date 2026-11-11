@@ -1357,6 +1357,15 @@ download_init_script() {
     else
         die "Ошибка загрузки files/lua/z2k-quic-silence.lua"
     fi
+
+    # Этот opt-in модуль запускает отдельную IPv4-проверку ответа Googlevideo.
+    url="${GITHUB_RAW}/files/lua/z2k-preflight.lua"
+    output="${lua_dir}/z2k-preflight.lua"
+    if z2k_fetch "$url" "$output"; then
+        print_success "Загружено: files/lua/z2k-preflight.lua"
+    else
+        die "Ошибка загрузки files/lua/z2k-preflight.lua"
+    fi
     # Снятый 11.09.2026 детектор молчания TCP: если он остался от прошлой
     # версии, его надо убрать — иначе на диске лежит файл, который init
     # загрузит, а конфиг на него больше не ссылается.

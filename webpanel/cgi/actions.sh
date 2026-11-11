@@ -1585,6 +1585,22 @@ toggle_quic_off() {
     restart_service_if_running
 }
 
+toggle_gv_subst() {
+    local want="$1"
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    set_flag "Z2K_GV_SUBST" "$want" "$CONFIG_FILE" || return 1
+    regenerate_config || return 1
+    restart_service_if_running
+}
+
+toggle_gv_preflight() {
+    local want="$1"
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    set_flag "Z2K_GV_SERVER_REPLY2" "$want" "$CONFIG_FILE" || return 1
+    regenerate_config || return 1
+    restart_service_if_running
+}
+
 toggle_dynamic_ttl() {
     # Z2K_DYNAMIC_TTL — feature flag for NDM TTL bypass injection in
     # NFQWS2_OPT. Mobile operators (МТС/Билайн) detect tethering via TTL

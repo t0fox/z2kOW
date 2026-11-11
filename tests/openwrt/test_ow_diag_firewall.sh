@@ -88,6 +88,8 @@ zapret_apply_firewall() {
     zapret_apply_firewall_standard_rules_nft
 }
 z2k_ow_customd_firewall_guards_apply() { return 0; }
+z2k_ow_gvsub_guard_apply() { return 0; }
+z2k_ow_preflight_apply() { return 0; }
 FW_EXTRA_POST='comment "owned nfqueue"'
 z2k_ow_fw_apply
 assert_eq "OpenWrt core NFQUEUE rules install an nft counter before queue verdict" \

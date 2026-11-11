@@ -9,6 +9,29 @@
 # пороги детекторов, другая пишет config.
 Z2K_UDP_PKT_OUT="8"
 Z2K_UDP_PKT_IN="8"
+Z2K_GVSUB_IPS="${Z2K_GVSUB_IPS:-${Z2K_TMP:-/tmp/z2k}/gv-ips.txt}"
+
+# Пустой include-ipset совпадает со всеми адресами. До запуска nfqws2 файл в
+# tmpfs содержит невозможные адреса и сохраняет последнюю полную версию списка.
+z2k_gvsub_ensure_ipfile() {
+    [ -n "$Z2K_GVSUB_IPS" ] || return 0
+    (
+        local tmp complete=1 sentinel
+        mkdir -p "$(dirname "$Z2K_GVSUB_IPS")" || exit 1
+        for sentinel in '0.0.0.0/32' '::/128'; do
+            grep -qxF "$sentinel" "$Z2K_GVSUB_IPS" 2>/dev/null || complete=0
+        done
+        [ "$complete" = 1 ] && exit 0
+        tmp=$(mktemp "${Z2K_GVSUB_IPS}.XXXXXX") || exit 1
+        if { printf '%s\n' '0.0.0.0/32' '::/128';
+             [ ! -f "$Z2K_GVSUB_IPS" ] || cat "$Z2K_GVSUB_IPS";
+           } > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$Z2K_GVSUB_IPS"; then
+            exit 0
+        fi
+        rm -f "$tmp"
+        exit 1
+    ) 2>/dev/null || :
+}
 
 # ==============================================================================
 # ГЕНЕРАЦИЯ NFQWS2_OPT ИЗ СТРАТЕГИЙ Z2K
@@ -34,6 +57,13 @@ generate_nfqws2_opt_from_strategies() {
     local quic_off yt_quic_off
     quic_off=$(safe_config_read Z2K_QUIC_OFF "${ZAPRET2_DIR:-/opt/zapret2}/config" 0)
     yt_quic_off=$(safe_config_read Z2K_YT_QUIC_OFF "${ZAPRET2_DIR:-/opt/zapret2}/config" 0)
+    local gv_subst
+    gv_subst=$(safe_config_read Z2K_GV_SUBST "${ZAPRET2_DIR:-/opt/zapret2}/config" 0)
+    [ "$gv_subst" = 1 ] || gv_subst=0
+    local gv_preflight gv_preflight_step="" preflight_lua_file
+    gv_preflight=$(safe_config_read Z2K_GV_SERVER_REPLY2 "${ZAPRET2_DIR:-/opt/zapret2}/config" 0)
+    [ "$gv_preflight" = 1 ] || gv_preflight=0
+    preflight_lua_file="${Z2K_LUA_DIR:-${ZAPRET2_DIR:-/opt/zapret2}/lua}/z2k-preflight.lua"
     local custom_strats_dir="${Z2K_EXTRA_STRATEGIES_RUNTIME:-$lists_dir/custom-strategies}"
 
     # Режим Austerusj (all_tcp443.conf) СНЯТ 2026-08-04. Пункт меню, которым его
@@ -1610,10 +1640,39 @@ generate_nfqws2_opt_from_strategies() {
         merged_google_tls="$merged_google_tls $gv_strategies_only"
         add_hostlist_line "${extra_strats_dir}/TCP/YT/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT/List.txt --hostlist=${extra_strats_dir}/TCP/YT_GV/List.txt $merged_google_tls --new"
     else
+        # Проверка отдельным соединением работает только в профиле Googlevideo.
+        # IPv6 оставлен выключенным до проверки маркировки и NAT на OpenWrt.
+        if [ "$gv_preflight" = 1 ] && [ "$category_youtube" != 0 ] \
+            && [ -f "$preflight_lua_file" ]; then
+            gv_preflight_step="--in-range=a --out-range=a --payload=all --lua-desync=z2k_preflight:pos=none:pieces=6:open=2:openwin=32:keepts:sni=www.google.com:timeout=4"
+        fi
+        if [ -n "$gv_preflight_step" ]; then
+            local gv_preflight_profile="" _gvt _gvdone=0 _gv_noglob=0
+            case $- in *f*) _gv_noglob=1 ;; *) set -f ;; esac
+            for _gvt in $youtube_gv_tcp; do
+                if [ "$_gvdone" = 0 ]; then
+                    case "$_gvt" in
+                        --in-range=*|--out-range=*|--payload=*|--lua-desync=*)
+                            gv_preflight_profile="${gv_preflight_profile:+$gv_preflight_profile }$gv_preflight_step"
+                            _gvdone=1
+                            ;;
+                    esac
+                fi
+                gv_preflight_profile="${gv_preflight_profile:+$gv_preflight_profile }$_gvt"
+            done
+            [ "$_gvdone" = 1 ] || gv_preflight_profile="${gv_preflight_profile:+$gv_preflight_profile }$gv_preflight_step"
+            [ "$_gv_noglob" = 1 ] || set +f
+            youtube_gv_tcp="$gv_preflight_profile"
+        fi
         # YouTube GV — dedicated hostlist (extra_strats/TCP/YT_GV/List.txt,
         # содержит googlevideo.com и c.youtube.com → match видеосерверов.
         # GV должен идти первым: его поддомены вложены в youtube.com.
-        add_hostlist_line "${extra_strats_dir}/TCP/YT_GV/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT_GV/List.txt $youtube_gv_tcp --new"
+        local gv_ipset=""
+        if [ "$gv_subst" = 1 ] && [ "$category_youtube" != 0 ]; then
+            z2k_gvsub_ensure_ipfile
+            gv_ipset="--ipset=$Z2K_GVSUB_IPS"
+        fi
+        add_hostlist_line "${extra_strats_dir}/TCP/YT_GV/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT_GV/List.txt $gv_ipset $youtube_gv_tcp --new"
         add_hostlist_line "${extra_strats_dir}/TCP/YT/List.txt" "$wl_excl --hostlist-exclude=${extra_strats_dir}/TCP/YT_GV/List.txt --hostlist=${extra_strats_dir}/TCP/YT/List.txt $youtube_tcp --new"
     fi
 
@@ -2075,7 +2134,7 @@ create_official_config() {
     # Apply active WARP lists to decapsulated WireGuard-server clients only
     # when explicitly enabled; preserve this opt-in across regeneration.
     local saved_Z2K_WARP_WDTT="0"
-    local saved_Z2K_QUIC_OFF="0" saved_Z2K_YT_QUIC_OFF="0"
+    local saved_Z2K_QUIC_OFF="0" saved_Z2K_YT_QUIC_OFF="0" saved_Z2K_GV_SUBST="0" saved_Z2K_GV_SERVER_REPLY2="0"
     # Час ночного автообновления (issue #60). Читается планировщиком
     # (files/z2k-scheduler.sh), ставится в панели: «Режимы» → Автообновление.
     local saved_Z2K_AU_HOUR="02"
@@ -2138,6 +2197,10 @@ create_official_config() {
         case "$saved_Z2K_QUIC_OFF" in 0|1) ;; *) saved_Z2K_QUIC_OFF=0 ;; esac
         saved_Z2K_YT_QUIC_OFF=$(safe_config_read "Z2K_YT_QUIC_OFF" "$config_file" "0")
         case "$saved_Z2K_YT_QUIC_OFF" in 0|1) ;; *) saved_Z2K_YT_QUIC_OFF=0 ;; esac
+        saved_Z2K_GV_SUBST=$(safe_config_read "Z2K_GV_SUBST" "$config_file" "0")
+        case "$saved_Z2K_GV_SUBST" in 0|1) ;; *) saved_Z2K_GV_SUBST=0 ;; esac
+        saved_Z2K_GV_SERVER_REPLY2=$(safe_config_read "Z2K_GV_SERVER_REPLY2" "$config_file" "0")
+        case "$saved_Z2K_GV_SERVER_REPLY2" in 0|1) ;; *) saved_Z2K_GV_SERVER_REPLY2=0 ;; esac
         saved_Z2K_TIKTOK_FEED_ENABLED=$(safe_config_read "Z2K_TIKTOK_FEED_ENABLED" "$config_file" "0")
         saved_Z2K_TIKTOK_MODE=$(safe_config_read "Z2K_TIKTOK_MODE" "$config_file" "auto")
         case "$saved_Z2K_TIKTOK_MODE" in manual) ;; *) saved_Z2K_TIKTOK_MODE=auto ;; esac
@@ -2564,6 +2627,8 @@ Z2K_PANEL_AUTH=${saved_Z2K_PANEL_AUTH}
 Z2K_AUTO_UPDATE_ENABLED=${saved_Z2K_AUTO_UPDATE_ENABLED}
 Z2K_YT_QUIC_OFF=${saved_Z2K_YT_QUIC_OFF}
 Z2K_QUIC_OFF=${saved_Z2K_QUIC_OFF}
+Z2K_GV_SUBST=${saved_Z2K_GV_SUBST}
+Z2K_GV_SERVER_REPLY2=${saved_Z2K_GV_SERVER_REPLY2}
 Z2K_TIKTOK_FEED_ENABLED=${saved_Z2K_TIKTOK_FEED_ENABLED}
 Z2K_TIKTOK_MODE=${saved_Z2K_TIKTOK_MODE}
 Z2K_TIKTOK_MANUAL_IP=${saved_Z2K_TIKTOK_MANUAL_IP}

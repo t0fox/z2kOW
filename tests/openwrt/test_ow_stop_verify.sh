@@ -31,8 +31,18 @@ if [ "$1" = "list" ] && [ "$2" = "chain" ]; then
             z2k_tg_dst_pre|z2k_rt_dst_pre) echo 'placeholder'; _found=1 ;;
         esac
     fi
+    if [ -f "$DIRTY/dirty-gvsub-guard" ] && [ "$_c" = postnat ]; then
+        echo 'ct mark & 0x10000000 == 0x10000000 return comment "z2k-openwrt: gvsub core queue guard"'
+        _found=1
+    fi
     # Чисто: chain ОТСУТСТВУЕТ (teardown удаляет) -> exit 1.
     [ "$_found" = "1" ] && exit 0 || exit 1
+fi
+if [ "$1" = "list" ] && [ "$2" = "table" ] && [ "$4" = "z2k_preflight" ]; then
+    [ -f "$DIRTY/dirty-preflight" ] && exit 0 || exit 1
+fi
+if [ "$1" = "list" ] && [ "$2" = "table" ] && [ "$4" = "z2k_gvsub" ]; then
+    [ -f "$DIRTY/dirty-gvsub" ] && exit 0 || exit 1
 fi
 exit 0
 EOF
@@ -98,6 +108,8 @@ z2k_load_adapter() {
     . "$REPO/platform/openwrt/customd.sh" || return 1
     . "$REPO/platform/openwrt/tg.sh" || return 1
     . "$REPO/platform/openwrt/rt.sh" || return 1
+    . "$REPO/platform/openwrt/gvsub.sh" || return 1
+    . "$REPO/platform/openwrt/preflight.sh" || return 1
     Z2K_WARP_SOURCE_ONLY=1; export Z2K_WARP_SOURCE_ONLY
     . "$REPO/platform/openwrt/warp.sh" || return 1
     return 0
@@ -145,7 +157,25 @@ _run_stop
 assert_contains "dirty-pbr rc" "$T/calls" "rc=1"
 rm -f "$T/dirty-pbr"
 
-# --- 7. INIT_APPLY_FW=0 + грязный fw: rc 0 (чужое не судим) ---
+# --- 7. verifier также обнаруживает оставшуюся таблицу preflight ---
+printf '' > "$T/dirty-preflight"
+_run_stop
+assert_contains "dirty-preflight rc" "$T/calls" "rc=1"
+rm -f "$T/dirty-preflight"
+
+# --- 8. verifier обнаруживает оставшееся правило guard GVSUB ---
+printf '' > "$T/dirty-gvsub-guard"
+_run_stop
+assert_contains "dirty-gvsub-guard rc" "$T/calls" "rc=1"
+rm -f "$T/dirty-gvsub-guard"
+
+# --- 9. verifier обнаруживает оставшуюся таблицу GVSUB ---
+printf '' > "$T/dirty-gvsub"
+_run_stop
+assert_contains "dirty-gvsub rc" "$T/calls" "rc=1"
+rm -f "$T/dirty-gvsub"
+
+# --- 10. INIT_APPLY_FW=0 + грязный fw: rc 0 (чужое не судим) ---
 printf '' > "$T/dirty-jump"
 INIT_APPLY_FW=0; export INIT_APPLY_FW
 _run_stop

@@ -56,9 +56,32 @@ z2k_ow_fw_apply() {
         . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/customd.sh" \
             || return 1
     fi
-    z2k_ow_customd_firewall_guards_apply
+    z2k_ow_customd_firewall_guards_apply || return 1
+    if ! command -v z2k_ow_gvsub_guard_apply >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/gvsub.sh" \
+            || return 1
+    fi
+    z2k_ow_gvsub_guard_apply || return 1
+    if ! command -v z2k_ow_preflight_apply >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/preflight.sh" \
+            || return 1
+    fi
+    z2k_ow_preflight_apply
 }
-z2k_ow_fw_remove() { z2k_ow_fw_source || return 1; zapret_unapply_firewall; }
+z2k_ow_fw_remove() {
+    z2k_ow_fw_source || return 1
+    if ! command -v z2k_ow_gvsub_guard_remove >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/gvsub.sh" \
+            || return 1
+    fi
+    z2k_ow_gvsub_guard_remove >/dev/null 2>&1 || return 1
+    if ! command -v z2k_ow_preflight_remove >/dev/null 2>&1; then
+        . "${Z2K_ADAPTER_DIR:-${Z2K_ROOT:-/usr/lib/z2k}/platform/openwrt}/preflight.sh" \
+            || return 1
+    fi
+    z2k_ow_preflight_remove || return 1
+    zapret_unapply_firewall
+}
 z2k_ow_fw_reload_ifsets() { z2k_ow_fw_source || return 1; zapret_reload_ifsets; }
 
 # Общая проверка используется procd-службой и деинсталлятором. Она удаляет
@@ -72,7 +95,9 @@ z2k_ow_stop_verify() {
         echo "z2k-openwrt: команда ip недоступна для проверки policy routing" >&2
         return 1
     }
-    local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}" _rc=0 _c _pair
+    local _tab="${Z2K_ZAPRET_NFT_TABLE:-${ZAPRET_NFT_TABLE:-zapret2}}" \
+        _gvtab="${Z2K_GVSUB_TABLE:-z2k_gvsub}" \
+        _gvguard="${Z2K_GVSUB_GUARD:-z2k-openwrt: gvsub core queue guard}" _rc=0 _c _pair
     for _pair in "postnat_hook postnat" "prenat_hook prenat"; do
         set -- $_pair
         if nft list chain inet "$_tab" "$1" 2>/dev/null | grep -q "jump $2"; then
@@ -92,6 +117,18 @@ z2k_ow_stop_verify() {
             _rc=1
         fi
     done
+    if nft list table inet "${Z2K_PREFLIGHT_TABLE:-z2k_preflight}" >/dev/null 2>&1; then
+        echo "z2k-openwrt: stop_verify: осталась таблица preflight" >&2
+        _rc=1
+    fi
+    if nft list chain inet "$_tab" postnat 2>/dev/null | grep -qF "comment \"$_gvguard\""; then
+        echo "z2k-openwrt: stop_verify: осталось правило guard GVSUB" >&2
+        _rc=1
+    fi
+    if nft list table inet "$_gvtab" >/dev/null 2>&1; then
+        echo "z2k-openwrt: stop_verify: осталась таблица GVSUB" >&2
+        _rc=1
+    fi
     if _z2k_ow_rt_dns_dump 2>/dev/null | grep -q '^z2k_rt_'; then
         echo "z2k-openwrt: stop_verify: остались RT DNS-пины" >&2
         _rc=1

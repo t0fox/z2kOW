@@ -26,7 +26,7 @@ z2k_ow_optbase() {
     _auto="$Z2K_ZAPRET2_RUNTIME/lua/zapret-auto.lua"
     [ -f "$_auto" ] || _auto="$_auto.gz"
     [ -f "$_auto" ] && _opt="$_opt --lua-init=@$_auto"
-    for _f in z2k-alert z2k-quic-silence z2k-tcp16 z2k-fooling-ext \
+    for _f in z2k-alert z2k-quic-silence z2k-tcp16 z2k-preflight z2k-fooling-ext \
              z2k-range-rand z2k-modern-core z2k-nfqws1-compat z2k-state-persist; do
         [ -f "$Z2K_LUA_DIR/$_f.lua" ] && _opt="$_opt --lua-init=@$Z2K_LUA_DIR/$_f.lua"
     done
