@@ -78,7 +78,7 @@ var (
 	probeBytes     = flag.Int("probe-bytes", 8192, "body bytes an upstream must actually deliver to count as live")
 	maxClients     = flag.Int("max-clients", 128, "ceiling on concurrent client connections; further connections are refused immediately rather than queued")
 	directFallback = flag.Bool("direct-fallback", true, "when no upstream can serve the target, resolve it ourselves and connect DIRECTLY instead of dropping the client")
-	directHosts    = flag.String("direct-fallback-hosts", "rutracker.org,rutracker.wiki,rutracker.cc,t-ru.org", "comma-separated suffixes eligible for the direct fallback — NOT a general escape hatch, see dialDirect")
+	directHosts    = flag.String("direct-fallback-hosts", "rutracker.org,rutracker.wiki,rutracker.cc,t-ru.org,"+echPublicName, "comma-separated suffixes eligible for the direct fallback — NOT a general escape hatch, see dialDirect")
 	resolveTO      = flag.Duration("resolve-timeout", 5*time.Second, "DNS budget PER RESOLVER (not shared: a blocked direct resolver must not starve the system-resolver fallback)")
 	verbose        = flag.Bool("v", false, "verbose logging")
 )
@@ -176,23 +176,27 @@ type pool struct {
 	rr   uint64   // round-robin cursor
 }
 
-func (p *pool) pick() string {
+func (p *pool) pick() string { return p.pickUntried(nil) }
+
+// Selection and cursor advance are atomic; request-owned exclusions survive
+// other clients advancing the cursor and health checks reordering the pool.
+func (p *pool) pickUntried(tried map[string]bool) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.live) == 0 {
-		return ""
+	for range p.live {
+		p.rr++
+		ip := p.live[p.rr%uint64(len(p.live))]
+		if !tried[ip] {
+			return ip
+		}
 	}
-	p.rr++
-	return p.live[p.rr%uint64(len(p.live))]
+	return ""
 }
 
-// demote drops ip from the live set the moment it fails on REAL traffic, without
-// waiting for the next health cycle. The health probe is a snapshot up to
-// health-interval old, and a node can pass it and stall a minute later — that gap is
-// what made RuTracker "work, then not work, then work again": pick() round-robins, so
-// whether a page loaded depended purely on which node the cursor handed you. A node
-// that just proved itself dead must leave the ring immediately; probeAll will let it
-// back in when it genuinely recovers.
+// demote removes a proxy after a target-independent transport failure.
+// A CONNECT refusal or missing target TLS flight must not call this: those
+// failures cannot establish that the proxy is broken for other destinations.
+// Periodic end-to-end probes remain authoritative for target-serving health.
 func (p *pool) demote(ip string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -620,31 +624,22 @@ func dialProxyDeadline(ip string, deadline time.Time) (net.Conn, error) {
 // Returns (nil, nil) if nothing works within the budget (genuine all-dead pool).
 // Seams: dialUpstream is otherwise untestable because both helpers do real I/O.
 // It had no tests at all, which is where both defects below survived.
-var openTunnelFn = openTunnel
-var verifyFirstByteFn = verifyFirstByte
+var openTunnelFn = openTunnelUntil
+var verifyFirstByteFn = verifyFirstByteUntil
 
 func dialUpstream(p *pool, sni string, hello []byte) (net.Conn, *bufio.Reader) {
 	target := sni + ":443"
 	deadline := time.Now().Add(*pickWaitTO)
 	tries := 0
-	// Blast-radius cap on demotion: AT MOST ONE node may leave the ring per client
-	// request. Observed on the owner's router (2026-07-26): a single request for a
-	// dead hostname demoted four healthy upstreams in a row -
-	//   "accepted CONNECT but sent no server flight (EOF) - demoting" x4
-	//   "no usable upstream proxy IP, dropping rutracker.cc"
-	// - because neither failure mode can tell "this NODE is broken" from "this
-	// TARGET is dead": the EOF arrives from the far end and the middleman is
-	// punished for it. Half the pool then disappears until the next 90 s probe and
-	// rutracker.org degrades FOR EVERYONE because one client asked for a dead host.
-	// Capping at one keeps the original guarantee (a genuinely dead node still
-	// leaves the ring on the first request that touches it, and the next request
-	// removes the next one) while making a dead target cost one node instead of
-	// maxTries.
+	// Only failures before CONNECT identify an unreachable proxy. Refused
+	// targets and missing server flights cannot distinguish a dead target from
+	// a bad proxy; only the independent health probe may demote those nodes.
+	tried := make(map[string]bool)
 	demotedHere := false
 	demoteOnce := func(ip, why string) {
 		if demotedHere {
 			log.Printf("[rt-proxy] %s also failed via %s (%s) — NOT demoting further this request; "+
-				"looks like the target, not the pool", target, ip, why)
+				"transport-demotion cap reached", target, ip, why)
 			return
 		}
 		p.demote(ip)
@@ -659,12 +654,20 @@ func dialUpstream(p *pool, sni string, hello []byte) (net.Conn, *bufio.Reader) {
 		if !time.Now().Before(deadline) {
 			return nil, nil
 		}
-		ip := p.pick()
+		ip := p.pickUntried(tried)
 		if ip == "" {
-			time.Sleep(250 * time.Millisecond)
+			if len(tried) != 0 {
+				return nil, nil
+			}
+			pause := 250 * time.Millisecond
+			if left := time.Until(deadline); left < pause {
+				pause = left
+			}
+			time.Sleep(pause)
 			continue
 		}
-		up, br, ok, reachable := openTunnelFn(ip, target)
+		tried[ip] = true
+		up, br, ok, reachable := openTunnelFn(ip, target, deadline)
 		if !reachable {
 			// Could not reach it at all. Do not leave it in the ring for the rest of
 			// the health interval: round-robin would keep handing it out, burning the
@@ -674,14 +677,14 @@ func dialUpstream(p *pool, sni string, hello []byte) (net.Conn, *bufio.Reader) {
 		}
 		if ok {
 			// Do not hand the client a tunnel that has not proven it carries data.
-			if verifyFirstByteFn(ip, up, br, hello) {
+			if verifyFirstByteFn(ip, up, br, hello, deadline) {
 				if *verbose {
 					log.Printf("[rt-proxy] tunnel %s via %s", target, ip)
 				}
 				return up, br
 			}
-			up.Close()
-			demoteOnce(ip, "no server flight")
+			abortTunnel(up)
+			// This failure concerns the target; preserve the shared live set.
 		}
 		tries++
 		if tries >= *maxTries {
@@ -716,33 +719,50 @@ func dialUpstream(p *pool, sni string, hello []byte) (net.Conn, *bufio.Reader) {
 // sent it anything yet, so the caller can simply replay the same ClientHello into a
 // different upstream.
 func verifyFirstByte(ip string, up net.Conn, br *bufio.Reader, hello []byte) bool {
+	return verifyFirstByteUntil(ip, up, br, hello, time.Time{})
+}
+
+func stageDeadline(overall time.Time, limit time.Duration) time.Time {
+	stage := time.Now().Add(limit)
+	if !overall.IsZero() && overall.Before(stage) {
+		return overall
+	}
+	return stage
+}
+
+func verifyFirstByteUntil(ip string, up net.Conn, br *bufio.Reader, hello []byte, overall time.Time) bool {
+	deadline := stageDeadline(overall, *firstByteTO)
+	if !time.Now().Before(deadline) {
+		return false
+	}
+	// Bound both the write and the read: a non-reading peer can stall Write.
+	up.SetDeadline(deadline)
+	defer up.SetDeadline(time.Time{})
 	if _, err := up.Write(hello); err != nil {
 		log.Printf("[rt-proxy] %s: ClientHello write failed: %v — trying another", ip, err)
 		return false
 	}
-	up.SetReadDeadline(time.Now().Add(*firstByteTO))
-	defer up.SetReadDeadline(time.Time{})
 	// TLS record header: type(1) version(2) length(2).
 	hdr, err := br.Peek(5)
 	if err != nil {
 		// Neutral wording on purpose: this function now also guards the DIRECT
 		// path, where no CONNECT ever happens. Saying "accepted CONNECT" there
 		// sent field triage looking for a tunnel that was never opened.
-		log.Printf("[rt-proxy] %s sent no server flight within %s (%v) — demoting, trying another",
+		log.Printf("[rt-proxy] %s sent no server flight within %s (%v) — trying another",
 			ip, *firstByteTO, err)
 		return false
 	}
 	if hdr[0] != 0x16 { // handshake
-		log.Printf("[rt-proxy] %s answered with a non-handshake record (type 0x%02x) — demoting, trying another", ip, hdr[0])
+		log.Printf("[rt-proxy] %s answered with a non-handshake record (type 0x%02x) — trying another", ip, hdr[0])
 		return false
 	}
 	n := int(hdr[3])<<8 | int(hdr[4])
 	if n <= 0 || n > 16384 { // RFC 8446 max TLSPlaintext fragment
-		log.Printf("[rt-proxy] %s answered with an implausible record length %d — demoting, trying another", ip, n)
+		log.Printf("[rt-proxy] %s answered with an implausible record length %d — trying another", ip, n)
 		return false
 	}
 	if _, err := br.Peek(5 + n); err != nil {
-		log.Printf("[rt-proxy] %s stalled mid-record (%d of %d bytes) within %s (%v) — demoting, trying another",
+		log.Printf("[rt-proxy] %s stalled mid-record (%d of %d bytes) within %s (%v) — trying another",
 			ip, br.Buffered(), 5+n, *firstByteTO, err)
 		return false
 	}
@@ -763,24 +783,24 @@ func verifyFirstByte(ip string, up net.Conn, br *bufio.Reader, hello []byte) boo
 	off := 5 + n
 	hdr2, err := br.Peek(off + 5)
 	if err != nil {
-		log.Printf("[rt-proxy] %s sent only the first record and stalled within %s (%v) — demoting, trying another",
+		log.Printf("[rt-proxy] %s sent only the first record and stalled within %s (%v) — trying another",
 			ip, *firstByteTO, err)
 		return false
 	}
 	switch hdr2[off] {
 	case 0x14, 0x16, 0x17: // ChangeCipherSpec, handshake, application_data — a flight continuing
 	default:
-		log.Printf("[rt-proxy] %s followed the ServerHello with record type 0x%02x — demoting, trying another",
+		log.Printf("[rt-proxy] %s followed the ServerHello with record type 0x%02x — trying another",
 			ip, hdr2[off])
 		return false
 	}
 	n2 := int(hdr2[off+3])<<8 | int(hdr2[off+4])
 	if n2 < 0 || n2 > 16384 {
-		log.Printf("[rt-proxy] %s second record has an implausible length %d — demoting, trying another", ip, n2)
+		log.Printf("[rt-proxy] %s second record has an implausible length %d — trying another", ip, n2)
 		return false
 	}
 	if _, err := br.Peek(off + 5 + n2); err != nil {
-		log.Printf("[rt-proxy] %s stalled inside its second record within %s (%v) — demoting, trying another",
+		log.Printf("[rt-proxy] %s stalled inside its second record within %s (%v) — trying another",
 			ip, *firstByteTO, err)
 		return false
 	}
@@ -845,6 +865,44 @@ var directLookup = func(ctx context.Context, host string) ([]string, error) {
 	return directResolver().LookupHost(ctx, host)
 }
 
+// echPublicName is the outer SNI a browser sends when it reaches a pinned Cloudflare
+// domain with Encrypted Client Hello. The real name is encrypted, so this is all the
+// bridge can see.
+const echPublicName = "cloudflare-ech.com"
+
+// Seam: the direct path does real I/O on port 443.
+var dialDirectFn = dialDirect
+
+// connectTarget picks the route out for one client connection.
+//
+// ECH GOES STRAIGHT TO CLOUDFLARE. The upstream pool cannot carry it: measured on all
+// 9 nodes on 2026-11-04, CONNECT to the public name or the edge IP returns 200 and then
+// EOF, and CONNECT to the real name reaches a certificate that does not cover the public
+// name. Asking the pool only costs the client --first-byte-timeout per node. Any
+// address of the public name serves every pinned domain (measured 2026-11-06), and the
+// bridge relays the bytes untouched, so end-to-end TLS stays between browser and site.
+func connectTarget(p *pool, sni string, hello []byte) (net.Conn, *bufio.Reader) {
+	if *directFallback && strings.EqualFold(strings.TrimSuffix(sni, "."), echPublicName) {
+		return dialDirectFn(sni, hello)
+	}
+	// dialUpstream replays the ClientHello itself and only returns a tunnel that has
+	// already answered with real bytes, retrying other nodes as needed — so by here the
+	// upstream is proven, not merely connected.
+	up, br := dialUpstream(p, sni, hello)
+	if up == nil && *directFallback {
+		// FAIL OPEN, the one thing the official RuTracker extension gets better
+		// than we did. Its PAC returns DIRECT for anything it cannot proxy; our
+		// DNS pin turns the same situation into a dead end, because the name is
+		// hijacked to a sentinel and the only route out was the upstream. Measured:
+		// rutracker.cc (no upstream A record at all) and www.rutracker.org (blockme
+		// serves the apex but not www) were hard 000s purely because they were
+		// pinned. main.go used to claim a direct fallback was "not constructible
+		// because the destination is a fake sentinel" — untrue: we hold the SNI.
+		up, br = dialDirectFn(sni, hello)
+	}
+	return up, br
+}
+
 // directHostAllowed matches the SNI against --direct-fallback-hosts, exactly or as
 // a dot-anchored suffix, so "cc.rutracker.org.evil.tld" cannot slip through.
 func directHostAllowed(sni string) bool {
@@ -873,20 +931,49 @@ func routableUnicast(ip net.IP) bool {
 // (its buffered bytes are load-bearing for the up->client splice).
 // The `reachable` return separates two very different failures. reachable=false
 // means we could not reach the proxy at all (TCP refused, SYN dropped, TLS
-// failed) - a conclusive death, and the dominant signature of an RU-blocked node,
+// failed with a full per-node budget), and the dominant signature of an RU-blocked node,
 // so it is worth evicting from the ring immediately. reachable=true with ok=false
 // means the node ANSWERED and refused the CONNECT (502/503 from a healthy but
-// overloaded proxy); evicting on that would throw away good nodes under load.
+// overloaded proxy), or the request budget expired before a fair probe could
+// complete; neither justifies global eviction.
 func openTunnel(ip, target string) (conn net.Conn, rd *bufio.Reader, ok bool, reachable bool) {
-	up, err := dialProxyDeadline(ip, time.Now().Add(*dialTO))
+	return openTunnelUntil(ip, target, time.Time{})
+}
+
+// abortTunnel closes failed attempts without TLS close_notify: tls.Conn.Close
+// may set its own five-second write deadline after our request budget expired.
+// Established tunnels retain their ordinary graceful close in handle.
+func abortTunnel(conn net.Conn) {
+	if tc, ok := conn.(*tls.Conn); ok {
+		tc.NetConn().Close()
+		return
+	}
+	conn.Close()
+}
+
+func openTunnelUntil(ip, target string, overall time.Time) (conn net.Conn, rd *bufio.Reader, ok bool, reachable bool) {
+	deadline := stageDeadline(overall, *dialTO)
+	if !time.Now().Before(deadline) {
+		return nil, nil, false, true
+	}
+	up, err := dialProxyDeadline(ip, deadline)
 	if err != nil {
 		if *verbose {
 			log.Printf("[rt-proxy] dial upstream %s failed: %v", ip, err)
 		}
+		// A shortened request budget is not a fair per-node reachability test.
+		// Keep definitive failures (e.g. refused connections) eligible for demotion.
+		var ne net.Error
+		if !overall.IsZero() && deadline.Equal(overall) && !time.Now().Before(overall) && errors.As(err, &ne) && ne.Timeout() {
+			return nil, nil, false, true
+		}
 		return nil, nil, false, false
 	}
-	up.SetDeadline(time.Now().Add(*dialTO))
-	fmt.Fprintf(up, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Connection: Keep-Alive\r\n\r\n", target, target)
+	up.SetDeadline(deadline)
+	if _, err := fmt.Fprintf(up, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Connection: Keep-Alive\r\n\r\n", target, target); err != nil {
+		abortTunnel(up)
+		return nil, nil, false, true
+	}
 	// Sized for the LARGEST Peek verifyFirstByte can ask for, which is two
 	// maximum-size TLS records plus both 5-byte headers:
 	//     5 + 16384 + 5 + 16384 = 32778 bytes
@@ -900,13 +987,17 @@ func openTunnel(ip, target string) (conn net.Conn, rd *bufio.Reader, ok bool, re
 		if *verbose {
 			log.Printf("[rt-proxy] CONNECT %s via %s rejected: %q", target, ip, strings.TrimSpace(status))
 		}
-		up.Close()
+		abortTunnel(up)
 		return nil, nil, false, true // it answered; not a reachability failure
 	}
 	// drain the rest of the CONNECT response headers (up to blank line)
 	for {
 		line, err := br.ReadString('\n')
-		if err != nil || line == "\r\n" || line == "\n" {
+		if err != nil {
+			abortTunnel(up)
+			return nil, nil, false, true
+		}
+		if line == "\r\n" || line == "\n" {
 			break
 		}
 	}
@@ -938,21 +1029,7 @@ func handle(client net.Conn, p *pool) {
 		return
 	}
 
-	// dialUpstream replays the ClientHello itself and only returns a tunnel that has
-	// already answered with real bytes, retrying other nodes as needed — so by here the
-	// upstream is proven, not merely connected.
-	up, br := dialUpstream(p, sni, hello)
-	if up == nil && *directFallback {
-		// FAIL OPEN, the one thing the official RuTracker extension gets better
-		// than we did. Its PAC returns DIRECT for anything it cannot proxy; our
-		// DNS pin turns the same situation into a dead end, because the name is
-		// hijacked to a sentinel and the only route out was the upstream. Measured:
-		// rutracker.cc (no upstream A record at all) and www.rutracker.org (blockme
-		// serves the apex but not www) were hard 000s purely because they were
-		// pinned. main.go used to claim a direct fallback was "not constructible
-		// because the destination is a fake sentinel" — untrue: we hold the SNI.
-		up, br = dialDirect(sni, hello)
-	}
+	up, br := connectTarget(p, sni, hello)
 	if up == nil {
 		log.Printf("[rt-proxy] no usable upstream proxy IP, dropping %s", sni)
 		return

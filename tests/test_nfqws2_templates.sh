@@ -71,6 +71,20 @@ gen() {   # $1 — Z2K_NFQWS2_TEMPLATES, $2 — «empty-rkn» чтобы обн�
 gen 1 > "$TMP/tpl.txt"
 gen 0 > "$TMP/flat.txt"
 
+# Известные whitelist-домены должны пройти до профилей без собственного списка.
+for config in "$TMP/tpl.txt" "$TMP/flat.txt"; do
+    awk '
+      /--filter-udp=1-65535 --hostlist=\/opt\/zapret2\/lists\/whitelist.txt --new/ {
+        if ($0 ~ /--lua-desync=/) exit 1
+        bypass=NR
+      }
+      /key=discord_udp/ { voice=NR }
+      /--filter-udp=590-600,49152-65535/ { wireguard=NR }
+      END { if (!bypass || !voice || !wireguard || bypass >= voice || bypass >= wireguard) exit 1 }
+    ' "$config" && ok "UDP whitelist предшествует голосовому и WireGuard-профилям ($config)" \
+      || no "порядок UDP whitelist" "whitelist перед обоими профилями" "нет или порядок нарушен"
+done
+
 # --- 1. Один шаблон, профиль РКН его импортирует -----------------------------
 _n_tpl=$(grep -c -- '--template=z2k_rkn_arsenal' "$TMP/tpl.txt")
 _n_imp=$(grep -c -- '--import=z2k_rkn_arsenal' "$TMP/tpl.txt")

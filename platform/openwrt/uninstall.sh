@@ -428,6 +428,10 @@ z2k_ow_uninstall() (
     z2k_ow_tg cleanup || _rc=1
     z2k_ow_rt cleanup || _rc=1
     z2k_ow_warp cleanup || _rc=1
+    if [ -x "${Z2K_ROOT:-/usr/lib/z2k}/z2k-agh-sync.sh" ]; then
+        Z2K_ROOT="${Z2K_ROOT:-/usr/lib/z2k}" Z2K_STATE="${Z2K_STATE:-/etc/z2k/state}" \
+            sh "${Z2K_ROOT:-/usr/lib/z2k}/z2k-agh-sync.sh" remove || _rc=1
+    fi
     z2k_ow_insta_uninstall || _rc=1
     z2k_ow_tiktok_uninstall || _rc=1
     # Remove only exactly-owned legacy DNS routing, without touching the

@@ -509,5 +509,11 @@ if [ "$INSTA_BACKEND" = openwrt ] && [ -n "$INSTA_HOSTS_BACKUP" ]; then
     rm -f "$INSTA_HOSTS_BACKUP"
 fi
 
+if [ "$INSTA_BACKEND" = openwrt ] && [ -x "$ZAPRET2_DIR/z2k-agh-sync.sh" ]; then
+    Z2K_ROOT="$ZAPRET2_DIR" Z2K_STATE="${Z2K_STATE:-/etc/z2k/state}" \
+        sh "$ZAPRET2_DIR/z2k-agh-sync.sh" sync >/dev/null 2>&1 || \
+        log "WARN: не удалось синхронизировать принадлежащие z2kOW rewrites AdGuard Home"
+fi
+
 log "=== refresh done: $changes host(s) updated ==="
 exit 0

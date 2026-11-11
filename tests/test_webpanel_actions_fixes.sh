@@ -700,8 +700,41 @@ act 'whitelist_add b.example.com' >/dev/null 2>&1
     && ok "в нормальный файл не добавляется пустая строка" \
     || no "в нормальный файл не добавляется пустая строка" "2 строки" "$(wc -l < "$WL" | tr -d ' ')"
 
+printf '\n--- 12. исключения доменов внутри списков ---\n'
+printf 'example.com\n' > "$WL"
+_revision=$(act 'domain_list_revision "$WL"')
+ACT_ENV="DOMAIN_REVISION=$_revision"
+printf 'Example.com\n!MAIL.example.com\n!mail.example.com\n' \
+    | act 'domain_list_save "$WL" "$DOMAIN_REVISION"' >/dev/null 2>&1
+if [ "$(tr '\n' '|' < "$WL")" = 'example.com|!mail.example.com|' ]; then
+    ok "whitelist сохраняет нормализованное исключение и устраняет повторы"
+else
+    no "whitelist сохраняет исключение" "example.com|!mail.example.com|" "$(tr '\n' '|' < "$WL")"
+fi
+_before=$(cat "$WL")
+_revision=$(act 'domain_list_revision "$WL"')
+ACT_ENV="DOMAIN_REVISION=$_revision"
+printf '!!mail.example.com\n' \
+    | act 'domain_list_save "$WL" "$DOMAIN_REVISION"' >/dev/null 2>&1 && _rc=0 || _rc=$?
+[ "$_rc" -ne 0 ] && [ "$(cat "$WL")" = "$_before" ] \
+    && ok "двойной ! отклоняется без изменения файла" \
+    || no "двойной ! отклоняется без изменения файла" "ошибка и прежний файл" "rc=$_rc, $(tr '\n' '|' < "$WL")"
+
+mkdir -p "$ZD/extra_strats/TCP/RKN"
+printf 'example.com\n' > "$ZD/extra_strats/TCP/RKN/List.txt"
+printf '!mail.example.com\n' > "$TMP/domain-candidate"
+ACT_ENV="DOMAIN_CANDIDATE=$TMP/domain-candidate"
+act '_extra_domains_validate_file "$DOMAIN_CANDIDATE" /dev/null' >/dev/null 2>&1 \
+    && ok "исключение поддомена не блокирует проверку покрытия" \
+    || no "исключение поддомена не блокирует проверку покрытия" "разрешено" "отклонено"
+printf 'mail.example.com\n' > "$TMP/domain-candidate"
+act '_extra_domains_validate_file "$DOMAIN_CANDIDATE" /dev/null' >/dev/null 2>&1 \
+    && no "покрытый положительный домен отклоняется" "отклонено" "разрешено" \
+    || ok "покрытый положительный домен отклоняется"
+ACT_ENV=""
+
 # ===========================================================================
-printf '\n--- 11. живой лог задачи режется по границе символа ---\n'
+printf '\n--- 13. живой лог задачи режется по границе символа ---\n'
 # ===========================================================================
 # Лог длиннее лимита и БЕЗ единого перевода строки — так выглядит прогресс
 # через \r (curl, opkg). Срез по границе байта отдавал обрубок UTF-8, ответ с
@@ -751,7 +784,7 @@ esac
 rm -f "$LOGF"
 
 # ===========================================================================
-printf '\n--- 12. проверка обновлений: потолок времени и негативный кэш ---\n'
+printf '\n--- 14. проверка обновлений: потолок времени и негативный кэш ---\n'
 # ===========================================================================
 # z2k_fetch — это до четырёх хопов по --max-time 180 каждый, а вызывается он из
 # синхронного CGI на GET /update/status, который фронт дёргает при каждой
@@ -822,7 +855,7 @@ fi
 ACT_ENV=""
 
 # ===========================================================================
-printf '\n--- 13. осиротевший скретч в /tmp подчищается ---\n'
+printf '\n--- 15. осиротевший скретч в /tmp подчищается ---\n'
 # ===========================================================================
 # CGI, убитый lighttpd'ом, уносит уборку с собой, а /tmp на роутере — это
 # ОПЕРАТИВКА. Уборка «по своему $$» в начале обработчика спасает только при

@@ -10,7 +10,7 @@ const STATE_SORT_KEY = "z2k-state-sort";
 
 // The labels double as the mobile sheet's option list, so the set of sortable
 // keys is declared once and cannot drift between the two controls.
-export const STATE_SORT_LABELS = { key: "Профиль", host: "Домен", strategy: "Стратегия", age: "Возраст" };
+export const STATE_SORT_LABELS = { key: "Профиль", host: "Домен", strategy: "Стратегия", frozen: "Заморозка", age: "Возраст" };
 
 function loadStateSort() {
   // Anything unrecognised falls back to the default. A stale value (a column
@@ -100,4 +100,67 @@ export const stateOpenGroups = loadOpenGroups();
 export function saveOpenGroups() {
   const all = Array.from(stateOpenGroups);
   try { localStorage.setItem(STATE_OPEN_KEY, JSON.stringify(all.slice(-STATE_OPEN_MAX))); } catch (_) {}
+}
+
+export function stateAge(ts, nowSec) {
+  const timestamp = Number(ts);
+  return Number.isFinite(timestamp) && timestamp > 0 ? Math.max(0, nowSec - timestamp) : null;
+}
+
+export function buildStateBlocks(entries, meta) {
+  const sorted = entries.slice().sort((a, b) => {
+    let av, bv;
+    switch (stateSort.key) {
+      case "key": av = String(a.key || ""); bv = String(b.key || ""); break;
+      case "host":
+        av = meta.get(a).group + "\u0000" + String(a.key || "") + "\u0000" + String(a.host || "");
+        bv = meta.get(b).group + "\u0000" + String(b.key || "") + "\u0000" + String(b.host || "");
+        break;
+      case "strategy": av = Number(a.strategy) || 0; bv = Number(b.strategy) || 0; break;
+      case "frozen": av = a.mode === "frozen" ? 0 : 1; bv = b.mode === "frozen" ? 0 : 1; break;
+      case "age":
+        av = meta.get(a).age; bv = meta.get(b).age;
+        if (av === null || bv === null) return av === bv ? 0 : av === null ? 1 : -1;
+        break;
+      default: return 0;
+    }
+    if (av < bv) return stateSort.dir === "asc" ? -1 : 1;
+    if (av > bv) return stateSort.dir === "asc" ? 1 : -1;
+    const ah = meta.get(a).group + "\u0000" + String(a.key || "") + "\u0000" + String(a.host || "");
+    const bh = meta.get(b).group + "\u0000" + String(b.key || "") + "\u0000" + String(b.host || "");
+    return ah < bh ? -1 : ah > bh ? 1 : 0;
+  });
+
+  const blocks = [];
+  const byGroup = new Map();
+  for (const entry of sorted) {
+    const metaEntry = meta.get(entry);
+    let block = byGroup.get(metaEntry.gkey);
+    if (!block) {
+      block = { group: metaEntry.group, gkey: metaEntry.gkey, pool: String(entry.key || ""), rows: [], names: new Set() };
+      byGroup.set(metaEntry.gkey, block);
+      blocks.push(block);
+    }
+    block.rows.push(entry);
+    block.names.add(metaEntry.name);
+  }
+
+  for (const block of blocks) {
+    block.age = null;
+    for (const entry of block.rows) {
+      const age = meta.get(entry).age;
+      if (age !== null && (block.age === null || age < block.age)) block.age = age;
+    }
+  }
+  if (stateSort.key !== "age") return blocks;
+
+  // Одиночные имена (в том числе пара IPv4/IPv6) не имеют общего заголовка,
+  // поэтому при сортировке по возрасту должны остаться отдельными строками.
+  const ageBlocks = blocks.flatMap(block => block.names.size >= 2 ? [block] : block.rows.map(entry => ({
+    ...block, rows: [entry], age: meta.get(entry).age,
+  })));
+  return ageBlocks.sort((a, b) => {
+    if (a.age === null || b.age === null) return a.age === b.age ? 0 : a.age === null ? 1 : -1;
+    return stateSort.dir === "asc" ? a.age - b.age : b.age - a.age;
+  });
 }

@@ -52,16 +52,16 @@ _n=$(printf '%s\n' "$_pin" | wc -l | tr -d ' ')
 [ "$_n" = "1" ] && ok "пин движка в install.sh один: $_pin" || no "пин движка один" "1" "$_pin"
 _r=$(printf '%s' "$_pin" | sed 's/.*-r//')
 if [ -n "$_r" ] && [ "$_r" -ge 0 ] 2>/dev/null && printf '%s\n' "$_pin" | grep -q 'v1\.0\.6-z2k-r0'; then
-    ok "движок закреплён на upstream v1.0.6-z2k-r0 (reassembly enabled)"
+    ok "резервный путь install.sh закреплён на v1.0.6-z2k-r0"
 else
-    no "движок закреплён на upstream v1.0.6-z2k-r0" "v1.0.6-z2k-r0" "$_pin"
+    no "резервный путь install.sh" "v1.0.6-z2k-r0" "$_pin"
 fi
 
 _ow_pin=$(sed -n 's/^URL=.*\/download\/\([^/]*\)\/.*$/\1/p' "$ROOT/platform/openwrt/runtime-pin")
-if [ "$_ow_pin" = "v1.0.6-z2k-r0" ]; then
-    ok "OpenWrt rootfs pins the same reassembly-capable engine"
+if [ "$_ow_pin" = "v1.0.7-z2k-r0" ]; then
+    ok "OpenWrt закрепляет движок v1.0.7-z2k-r0 с поддержкой исключений доменов"
 else
-    no "OpenWrt rootfs engine pin" "v1.0.6-z2k-r0" "$_ow_pin"
+    no "пин движка OpenWrt" "v1.0.7-z2k-r0" "$_ow_pin"
 fi
 
 # --- 3. диагностика: флаг = отклонение, его отсутствие = норма ----------------

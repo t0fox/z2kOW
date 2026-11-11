@@ -240,6 +240,10 @@ _z2k_install_paths_openwrt() {
             # Shared upstream fetch/filter/probe flow. OpenWrt sources its
             # platform adapter for the dnsmasq host-record backend.
             echo "${or}/z2k-insta-ip-refresh.sh" ;;
+        files/z2k-agh-sync.sh|files/z2k-agh-rewrites.awk)
+            # Необязательная интеграция с AdGuard Home использует только
+            # dnsmasq-записи OpenWrt и журнал владения в /etc/z2k/state.
+            echo "${or}/${repo_path#files/}" ;;
         files/z2k-blocked-monitor.sh)
             # Operator-invoked packet monitor. The CLI adapter redirects its
             # bounded cache to tmpfs instead of the read-only payload tree.

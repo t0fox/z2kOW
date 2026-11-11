@@ -843,6 +843,16 @@ apply_new_list() {
 # Run unconditionally after fetch (even on 304/cached) so the on-disk
 # list stays clean if upstream adds googlevideo entries later.
 subtract_googlevideo_from_yt() {
+    # Добавляем новые видеосерверы в поставляемый список, не трогая записи пользователя.
+    local gv_target="$EXTRA/TCP/YT_GV/List.txt" domain
+    mkdir -p "${gv_target%/*}" || return 1
+    touch "$gv_target" || return 1
+    for domain in googlevideo.com c.youtube.com; do
+        if ! awk -v want="$domain" '{ sub(/\r$/, ""); if (tolower($0) == want) found=1 } END { exit !found }' "$gv_target"; then
+            printf '%s\n' "$domain" >> "$gv_target" || return 1
+        fi
+    done
+
     local yt_target="$EXTRA/TCP/YT/List.txt"
     [ -s "$yt_target" ] || return 0
 
@@ -855,6 +865,7 @@ subtract_googlevideo_from_yt() {
         sub(/\r$/, "", d)
         if (d == "googlevideo.com") next
         if (d ~ /\.googlevideo\.com$/) next
+        if (tolower(d) ~ /(^|\.)c\.youtube\.com\.?$/) next
         print d
     }' "$yt_target" > "$filtered" || {
         log "YT subtract: awk failed, keeping original list"
@@ -876,10 +887,10 @@ subtract_googlevideo_from_yt() {
             log "YT subtract: rename failed"
             return 1
         }
-        log "YT: removed $removed googlevideo overlap(s) ($before → $after lines) — gv_tcp profile gets these via YT_GV/List.txt"
+        log "YT: removed $removed googlevideo/c.youtube.com overlap(s) ($before → $after lines) — gv_tcp profile gets these via YT_GV/List.txt"
     else
         rm -f "$filtered"
-        log "YT: no googlevideo overlaps in upstream youtube.txt"
+        log "YT: no googlevideo/c.youtube.com overlaps in upstream youtube.txt"
     fi
     return 0
 }
@@ -945,6 +956,7 @@ subtract_yt_from_rkn() {
             sub(/\r$/, "", d)
             if (d == "googlevideo.com") next
             if (d ~ /\.googlevideo\.com$/) next
+            if (tolower(d) ~ /(^|\.)c\.youtube\.com\.?$/) next
             tmp = d
             if (tmp in ex) next
             while (sub(/^[^.]*\./, "", tmp)) {
@@ -980,10 +992,10 @@ subtract_yt_from_rkn() {
             log "RKN subtract: rename failed"
             return 1
         }
-        log "RKN: removed $removed YT/googlevideo overlaps ($before → $after lines)"
+        log "RKN: removed $removed YT/googlevideo/c.youtube.com overlaps ($before → $after lines)"
     else
         rm -f "$filtered"
-        log "RKN: no YT/googlevideo overlaps found"
+        log "RKN: no YT/googlevideo/c.youtube.com overlaps found"
     fi
     return 0
 }

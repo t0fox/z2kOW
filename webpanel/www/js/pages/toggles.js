@@ -476,6 +476,10 @@ function renderTgDiagnostics(report) {
 const TOGGLE_DEFS = [
   { key: "category_youtube", name: "YouTube",
     desc: "Обход для YouTube и Googlevideo, включая QUIC. Выключите, чтобы эти сервисы работали напрямую." },
+  { key: "yt_quic_off", name: "YouTube без QUIC",
+    desc: "Включите, если видео YouTube долго начинает воспроизведение. Роутер сразу переводит подключение с QUIC на обычный TCP." },
+  { key: "quic_off", name: "Весь QUIC через TCP",
+    desc: "Включите, если провайдер режет QUIC ко всем сайтам. Браузер и приложения сразу перейдут на TCP; домены из исключений не затрагиваются." },
   { key: "category_rkn", name: "RKN",
     desc: "Обход сайтов из списков РКН по HTTPS, HTTP и QUIC. При выключении автоподбор новых доменов также не применяется." },
   { key: "category_discord_voice", name: "Discord Voice / STUN",
@@ -651,6 +655,8 @@ const TOGGLE_API_NAME = {
   category_youtube: "category-youtube",
   category_rkn: "category-rkn",
   category_discord_voice: "category-discord-voice",
+  yt_quic_off: "yt-quic-off",
+  quic_off: "quic-off",
   customd: "customd",
   dynamic_ttl: "dynamic-ttl",
   ppe: "ppe",
@@ -1896,7 +1902,7 @@ export async function renderToggles() {
         const state = row.querySelector("#fastroute-status");
         if (state) state.textContent = s.toggles.fastroute_status || "Состояние маршрутного кэша недоступно.";
       }
-      setLockAware(box, false);
+      setLockAware(box, t.key === "yt_quic_off" && s.toggles.category_youtube !== "1");
       // Повторная загрузка не должна вешать второй обработчик: два POST'а
       // на один клик — два конкурентных рестарта сервиса.
       if (!box.dataset.wired) {
@@ -2280,6 +2286,8 @@ async function toggleClick(key, box, refreshToggles) {
     category_youtube: "YouTube",
     category_rkn: "RKN",
     category_discord_voice: "Discord Voice / STUN",
+    yt_quic_off: "YouTube без QUIC",
+    quic_off: "Весь QUIC через TCP",
     customd: "custom.d",
     dynamic_ttl: "Динамический TTL",
     ppe: "PPE de-offload",

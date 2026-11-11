@@ -1569,6 +1569,22 @@ toggle_category_youtube() { toggle_category YOUTUBE "$1"; }
 toggle_category_rkn() { toggle_category RKN "$1"; }
 toggle_category_discord_voice() { toggle_category DISCORD_VOICE "$1"; }
 
+toggle_yt_quic_off() {
+    local want="$1"
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    set_flag "Z2K_YT_QUIC_OFF" "$want" "$CONFIG_FILE" || return 1
+    regenerate_config || return 1
+    restart_service_if_running
+}
+
+toggle_quic_off() {
+    local want="$1"
+    case "$want" in 0|1) ;; *) return 1 ;; esac
+    set_flag "Z2K_QUIC_OFF" "$want" "$CONFIG_FILE" || return 1
+    regenerate_config || return 1
+    restart_service_if_running
+}
+
 toggle_dynamic_ttl() {
     # Z2K_DYNAMIC_TTL — feature flag for NDM TTL bypass injection in
     # NFQWS2_OPT. Mobile operators (МТС/Билайн) detect tethering via TTL
@@ -4961,16 +4977,18 @@ domain_list_save() (
             sub(/\r$/, ""); line=$0
             sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "")
             if ($0 == "" || substr($0, 1, 1) == "#") { print line; next }
-            d=tolower($0); valid=1
+            d=tolower($0); exception=0; valid=1
+            if (substr(d, 1, 1) == "!") { exception=1; d=substr(d, 2) }
             if (length(d)>253 || d !~ /^[a-z0-9.-]+$/ || d ~ /^[0-9.]+$/) valid=0
             n=split(d, labels, ".")
             for (i=1; i<=n; i++)
                 if (length(labels[i])<1 || length(labels[i])>63 || labels[i] ~ /^-/ || labels[i] ~ /-$/) valid=0
             if (!valid) {
-                printf "Некорректный домен в строке %d. Укажите имя сайта без адреса, протокола и пути.\n", NR > "/dev/stderr"
+                printf "Некорректный домен в строке %d. Укажите имя сайта или !поддомен для исключения.\n", NR > "/dev/stderr"
                 bad=1; next
             }
-            if (!seen[d]++) print d
+            key=(exception ? "!" : "") d
+            if (!seen[key]++) print key
         }
         END { exit bad ? 2 : 0 }
     ' "$raw" > "$tmp" || exit 2
@@ -5011,7 +5029,7 @@ _extra_domains_validate_file() {
             }
             FILENAME == old { previous[$0]=1; next }
             FILENAME == covered { if ($0 != "" && $0 !~ /^#/) have[$0]=1; next }
-            $0 == "" || $0 ~ /^#/ || previous[$0] { next }
+            $0 == "" || $0 ~ /^#/ || $0 ~ /^!/ || previous[$0] { next }
             {
                 domain=$0; suffix=domain
                 while (index(suffix, ".")) {

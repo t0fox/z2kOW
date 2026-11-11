@@ -66,7 +66,7 @@ mkdir -p "$MOCK_EXTRA_STRATS/TCP/YT" \
 
 # Create mock hostlist files (non-empty so profiles are included)
 echo "youtube.com" > "$MOCK_EXTRA_STRATS/TCP/YT/List.txt"
-echo "googlevideo.com" > "$MOCK_EXTRA_STRATS/TCP/YT_GV/List.txt"
+printf 'googlevideo.com\nc.youtube.com\n' > "$MOCK_EXTRA_STRATS/TCP/YT_GV/List.txt"
 echo "youtube.com" > "$MOCK_EXTRA_STRATS/UDP/YT/List.txt"
 echo "rutracker.org" > "$MOCK_EXTRA_STRATS/TCP/RKN/List.txt"
 echo "whitelisted.example.com" > "$MOCK_LISTS/whitelist.txt"
@@ -128,10 +128,50 @@ for yt in 0 1; do
     assert_contains "remaining category keeps QUIC" 'key=quic' "$output"
    fi
    assert_contains "WhatsApp remains independent" '--filter-tcp=5222' "$output"
+   assert_contains "UDP whitelist bypass is present" "--filter-udp=1-65535 --hostlist=$MOCK_LISTS/whitelist.txt --new" "$output"
+   _bypass_line=$(printf '%s\n' "$output" | grep -n -F -- "--filter-udp=1-65535 --hostlist=$MOCK_LISTS/whitelist.txt" | head -1 | cut -d: -f1)
+   if [ "$voice" = 1 ]; then
+    _voice_line=$(printf '%s\n' "$output" | grep -n -F -- 'key=discord_udp' | head -1 | cut -d: -f1)
+    [ -n "$_bypass_line" ] && [ -n "$_voice_line" ] && [ "$_bypass_line" -lt "$_voice_line" ] \
+     && assert_eq "UDP whitelist precedes Discord voice" 1 1 \
+     || assert_eq "UDP whitelist precedes Discord voice" 1 0
+   fi
   done
  done
 done
 done
+
+# Первый совпавший профиль определяет набор стратегий: c.youtube.com и его
+# поддомены должны попасть в отдельный GV-пул раньше youtube.com.
+printf 'ENABLED=1\nZ2K_CATEGORY_YOUTUBE=1\nZ2K_CATEGORY_RKN=1\nZ2K_REFACTOR_PHASE3=0\n' > "$MOCK_ZAPRET2/config"
+output=$(generate_nfqws2_opt_from_strategies)
+_gv_line=$(printf '%s\n' "$output" | grep -n -F -- '/TCP/YT_GV/List.txt' | head -1 | cut -d: -f1)
+_yt_line=$(printf '%s\n' "$output" | grep -n -F -- '/TCP/YT/List.txt' | head -1 | cut -d: -f1)
+if [ -n "$_gv_line" ] && [ -n "$_yt_line" ] && [ "$_gv_line" -lt "$_yt_line" ]; then
+ assert_eq "GV-профиль предшествует вложенным доменам YouTube" 1 1
+else
+ assert_eq "GV-профиль предшествует вложенным доменам YouTube" 1 0
+fi
+assert_contains "YouTube исключает домены GV" "--hostlist-exclude=$MOCK_EXTRA_STRATS/TCP/YT_GV/List.txt" "$output"
+
+# QUIC-переключатели должны поставить drop перед рабочим профилем, уважая
+# whitelist; выбор «только YouTube» не действует при выключенной категории.
+printf 'ENABLED=1\nZ2K_CATEGORY_YOUTUBE=1\nZ2K_CATEGORY_RKN=1\nZ2K_YT_QUIC_OFF=1\n' > "$MOCK_ZAPRET2/config"
+output=$(generate_nfqws2_opt_from_strategies)
+assert_contains "YouTube без QUIC: свой hostlist" "--hostlist=$MOCK_EXTRA_STRATS/UDP/YT/List.txt --filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=drop --new" "$output"
+assert_contains "YouTube без QUIC: whitelist исключён" "--hostlist-exclude=$MOCK_LISTS/whitelist.txt --hostlist=$MOCK_EXTRA_STRATS/UDP/YT/List.txt" "$output"
+_drop_line=$(printf '%s\n' "$output" | grep -n -F -- '--payload=quic_initial --lua-desync=drop --new' | head -1 | cut -d: -f1)
+_quic_line=$(printf '%s\n' "$output" | grep -n -F -- 'key=quic' | head -1 | cut -d: -f1)
+[ -n "$_drop_line" ] && [ -n "$_quic_line" ] && [ "$_drop_line" -lt "$_quic_line" ] \
+ && assert_eq "QUIC drop precedes обходной профиль" 1 1 \
+ || assert_eq "QUIC drop precedes обходной профиль" 1 0
+printf 'ENABLED=1\nZ2K_CATEGORY_YOUTUBE=1\nZ2K_QUIC_OFF=1\nZ2K_YT_QUIC_OFF=1\n' > "$MOCK_ZAPRET2/config"
+output=$(generate_nfqws2_opt_from_strategies)
+assert_contains "Весь QUIC: один общий профиль" "--hostlist-exclude=$MOCK_LISTS/whitelist.txt --filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=drop --new" "$output"
+printf 'ENABLED=1\nZ2K_CATEGORY_YOUTUBE=0\nZ2K_YT_QUIC_OFF=1\n' > "$MOCK_ZAPRET2/config"
+output=$(generate_nfqws2_opt_from_strategies)
+assert_not_contains "YouTube выключен: профиль drop не ставится" '--payload=quic_initial --lua-desync=drop --new' "$output"
+
 # Missing flags keep the previous default behavior.
 printf 'ENABLED=1\n' > "$MOCK_ZAPRET2/config"
 output=$(generate_nfqws2_opt_from_strategies)
@@ -139,13 +179,15 @@ assert_contains "default YT" "--hostlist=$MOCK_EXTRA_STRATS/TCP/YT/List.txt" "$o
 assert_contains "default RKN" "key=rkn_tcp" "$output"
 assert_contains "default voice" "key=discord_udp" "$output"
 # Full regeneration must preserve switches, including a second regeneration.
-printf 'ENABLED=0\nDISABLE_IPV6=1\nZ2K_CATEGORY_YOUTUBE=0\nZ2K_CATEGORY_RKN=0\nZ2K_CATEGORY_DISCORD_VOICE=0\n' > "$MOCK_ZAPRET2/config"
+printf 'ENABLED=0\nDISABLE_IPV6=1\nZ2K_CATEGORY_YOUTUBE=0\nZ2K_CATEGORY_RKN=0\nZ2K_CATEGORY_DISCORD_VOICE=0\nZ2K_QUIC_OFF=1\nZ2K_YT_QUIC_OFF=1\n' > "$MOCK_ZAPRET2/config"
 for pass in 1 2; do
  create_official_config "$MOCK_ZAPRET2/config" >/dev/null 2>&1
  for key in YOUTUBE RKN DISCORD_VOICE; do
   assert_eq "preserve $key on regeneration $pass" 0 "$(safe_config_read "Z2K_CATEGORY_$key" "$MOCK_ZAPRET2/config" missing)"
  done
  assert_eq "stopped service remains stopped" 0 "$(safe_config_read ENABLED "$MOCK_ZAPRET2/config" missing)"
+ assert_eq "preserve QUIC off on regeneration $pass" 1 "$(safe_config_read Z2K_QUIC_OFF "$MOCK_ZAPRET2/config" missing)"
+ assert_eq "preserve YouTube QUIC off on regeneration $pass" 1 "$(safe_config_read Z2K_YT_QUIC_OFF "$MOCK_ZAPRET2/config" missing)"
 done
 printf '\nPASSED: %s FAILED: %s\n' "$TESTS_PASSED" "$TESTS_FAILED"
 [ "$TESTS_FAILED" = 0 ]

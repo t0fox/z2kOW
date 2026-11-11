@@ -31,6 +31,9 @@ generate_nfqws2_opt_from_strategies() {
     category_youtube=$(safe_config_read Z2K_CATEGORY_YOUTUBE "${ZAPRET2_DIR:-/opt/zapret2}/config" 1)
     category_rkn=$(safe_config_read Z2K_CATEGORY_RKN "${ZAPRET2_DIR:-/opt/zapret2}/config" 1)
     category_voice=$(safe_config_read Z2K_CATEGORY_DISCORD_VOICE "${ZAPRET2_DIR:-/opt/zapret2}/config" 1)
+    local quic_off yt_quic_off
+    quic_off=$(safe_config_read Z2K_QUIC_OFF "${ZAPRET2_DIR:-/opt/zapret2}/config" 0)
+    yt_quic_off=$(safe_config_read Z2K_YT_QUIC_OFF "${ZAPRET2_DIR:-/opt/zapret2}/config" 0)
     local custom_strats_dir="${Z2K_EXTRA_STRATEGIES_RUNTIME:-$lists_dir/custom-strategies}"
 
     # Режим Austerusj (all_tcp443.conf) СНЯТ 2026-08-04. Пункт меню, которым его
@@ -1607,12 +1610,11 @@ generate_nfqws2_opt_from_strategies() {
         merged_google_tls="$merged_google_tls $gv_strategies_only"
         add_hostlist_line "${extra_strats_dir}/TCP/YT/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT/List.txt --hostlist=${extra_strats_dir}/TCP/YT_GV/List.txt $merged_google_tls --new"
     else
-        # YouTube TCP
-        add_hostlist_line "${extra_strats_dir}/TCP/YT/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT/List.txt $youtube_tcp --new"
         # YouTube GV — dedicated hostlist (extra_strats/TCP/YT_GV/List.txt,
-        # содержит apex googlevideo.com → match всех поддоменов: rr1-rr9,
-        # manifest, и т.д.). Расширяется добавлением строк в файл.
+        # содержит googlevideo.com и c.youtube.com → match видеосерверов.
+        # GV должен идти первым: его поддомены вложены в youtube.com.
         add_hostlist_line "${extra_strats_dir}/TCP/YT_GV/List.txt" "$wl_excl --hostlist=${extra_strats_dir}/TCP/YT_GV/List.txt $youtube_gv_tcp --new"
+        add_hostlist_line "${extra_strats_dir}/TCP/YT/List.txt" "$wl_excl --hostlist-exclude=${extra_strats_dir}/TCP/YT_GV/List.txt --hostlist=${extra_strats_dir}/TCP/YT/List.txt $youtube_tcp --new"
     fi
 
     # QUIC — общий профиль: YouTube, РКН и HTTP/3-список Discord.
@@ -1624,6 +1626,16 @@ generate_nfqws2_opt_from_strategies() {
     # Порядок списков значения не имеет (движок объединяет), но ютубовский стоит
     # первым намеренно: так видно, что профиль вырос из него, а не появился из
     # ниоткуда.
+    # QUIC мимо обхода: не пропускаем Initial, чтобы приложения сразу
+    # переходили на TCP. Whitelist и выключенную категорию YouTube сохраняем.
+    local quic_drop="--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=drop --new"
+    if [ "$quic_off" = "1" ]; then
+        nfqws2_opt_lines="$nfqws2_opt_lines$wl_excl $quic_drop\\n"
+    elif [ "$yt_quic_off" = "1" ] && [ "$category_youtube" != 0 ] \
+         && [ -s "${extra_strats_dir}/UDP/YT/List.txt" ]; then
+        nfqws2_opt_lines="$nfqws2_opt_lines$wl_excl --hostlist=${extra_strats_dir}/UDP/YT/List.txt $quic_drop\\n"
+    fi
+
     local quic_lists="" quic_anchor=""
     if [ "$category_youtube" != 0 ] && [ -s "${extra_strats_dir}/UDP/YT/List.txt" ]; then
         quic_anchor="${extra_strats_dir}/UDP/YT/List.txt"
@@ -1648,6 +1660,10 @@ generate_nfqws2_opt_from_strategies() {
 
     # Discord UDP (no hostlist - STUN has no hostname, uses filter-l7=discord,stun
     # + hostkey=z2k_nohost_key for stable hostless rotation keying)
+    # Имена, уже известные движку, должны пройти whitelist до профилей без
+    # собственного списка доменов. Hostlist-exclude здесь отбрасывал бы и
+    # соединения без известного имени, поэтому используется отдельный профиль.
+    nfqws2_opt_lines="$nfqws2_opt_lines--filter-udp=1-65535 --hostlist=${lists_dir}/whitelist.txt --new\\n"
     [ "$category_voice" = 0 ] || nfqws2_opt_lines="$nfqws2_opt_lines$discord_udp --new\\n"
 
     # Профиль WireGuard из p-87.3; MTProto остаётся у отдельного Rust-прокси,
@@ -2059,6 +2075,7 @@ create_official_config() {
     # Apply active WARP lists to decapsulated WireGuard-server clients only
     # when explicitly enabled; preserve this opt-in across regeneration.
     local saved_Z2K_WARP_WDTT="0"
+    local saved_Z2K_QUIC_OFF="0" saved_Z2K_YT_QUIC_OFF="0"
     # Час ночного автообновления (issue #60). Читается планировщиком
     # (files/z2k-scheduler.sh), ставится в панели: «Режимы» → Автообновление.
     local saved_Z2K_AU_HOUR="02"
@@ -2117,6 +2134,10 @@ create_official_config() {
         case "$saved_Z2K_SNI_STALL" in 0|1) ;; *) saved_Z2K_SNI_STALL=1 ;; esac
         saved_Z2K_PANEL_AUTH=$(safe_config_read "Z2K_PANEL_AUTH" "$config_file" "0")
         saved_Z2K_AUTO_UPDATE_ENABLED=$(safe_config_read "Z2K_AUTO_UPDATE_ENABLED" "$config_file" "1")
+        saved_Z2K_QUIC_OFF=$(safe_config_read "Z2K_QUIC_OFF" "$config_file" "0")
+        case "$saved_Z2K_QUIC_OFF" in 0|1) ;; *) saved_Z2K_QUIC_OFF=0 ;; esac
+        saved_Z2K_YT_QUIC_OFF=$(safe_config_read "Z2K_YT_QUIC_OFF" "$config_file" "0")
+        case "$saved_Z2K_YT_QUIC_OFF" in 0|1) ;; *) saved_Z2K_YT_QUIC_OFF=0 ;; esac
         saved_Z2K_TIKTOK_FEED_ENABLED=$(safe_config_read "Z2K_TIKTOK_FEED_ENABLED" "$config_file" "0")
         saved_Z2K_TIKTOK_MODE=$(safe_config_read "Z2K_TIKTOK_MODE" "$config_file" "auto")
         case "$saved_Z2K_TIKTOK_MODE" in manual) ;; *) saved_Z2K_TIKTOK_MODE=auto ;; esac
@@ -2541,6 +2562,8 @@ Z2K_DNS_REDIRECT=${saved_Z2K_DNS_REDIRECT}
 Z2K_SNI_STALL=${saved_Z2K_SNI_STALL}
 Z2K_PANEL_AUTH=${saved_Z2K_PANEL_AUTH}
 Z2K_AUTO_UPDATE_ENABLED=${saved_Z2K_AUTO_UPDATE_ENABLED}
+Z2K_YT_QUIC_OFF=${saved_Z2K_YT_QUIC_OFF}
+Z2K_QUIC_OFF=${saved_Z2K_QUIC_OFF}
 Z2K_TIKTOK_FEED_ENABLED=${saved_Z2K_TIKTOK_FEED_ENABLED}
 Z2K_TIKTOK_MODE=${saved_Z2K_TIKTOK_MODE}
 Z2K_TIKTOK_MANUAL_IP=${saved_Z2K_TIKTOK_MANUAL_IP}
