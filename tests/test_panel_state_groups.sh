@@ -565,7 +565,7 @@ meta() {
 meta "заголовок над парой v4/v6 одного имени" render 's/if (b\.names\.size >= 2) {/if (b.rows.length >= 2) {/'
 meta "зоны второго уровня не учитываются" render 's/(tld\.length === 2 && SLD_GENERIC\.has(sld)) ? -3 : -2/-2/'
 meta "группы раскрыты по умолчанию" render 's/<tbody class="sg\${open ? "" : " sg-closed"}"/<tbody class="sg"/'
-meta "сортировка по домену без родителя" render 's/case "host":     av = meta\.get(a)\.group + "\\u0000" + String(a\.key || "") + "\\u0000" + /case "host":     av = /'
+meta "сортировка по домену без родителя" render 's/av = meta\.get(a)\.group.*/av = String(a.host || "");/'
 meta "равные строки снова в порядке файла" tiebreak 's/return ah < bh ? -1 : ah > bh ? 1 : 0;/return 0;/'
 meta "раскрытие не запоминается" remembered 's/const open = query ? !searchCollapsed\.has(b\.gkey) : stateOpenGroups\.has(b\.gkey);/const open = false;/'
 meta "клик не сохраняет раскрытие" toggle 's/^ *saveOpenGroups();$//'
