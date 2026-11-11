@@ -62,6 +62,7 @@ const statusFixture = {
   ok: true, installed: 'p-86.1', running: true, service: 'active', platform: 'openwrt',
   toggles: {
     game_warp: '0', category_youtube: '1', category_rkn: '1', category_discord_voice: '1',
+    yt_quic_off: '0', quic_off: '0',
     customd: '0', dynamic_ttl: '1',
     ppe: '1', auto_update: '1', autohostlist: '0', fastroute: '0', dns_redirect: '0',
     fastroute_available: '0', flowoffload: 'hardware',
@@ -1373,7 +1374,7 @@ function assertSwitchVisuals(visuals, expected, label) {
 }
 
 async function runSwitchVisualTests() {
-  const switchKeys = ['category_youtube', 'category_rkn', 'category_discord_voice', 'customd',
+  const switchKeys = ['category_youtube', 'category_rkn', 'category_discord_voice', 'yt_quic_off', 'quic_off', 'customd',
     'dynamic_ttl', 'ppe', 'fastroute', 'auto_update', 'autohostlist'];
   const values = state => Object.fromEntries(switchKeys.map(key => [key, state[key] || '0']));
   const allOn = values(Object.fromEntries(switchKeys.map(key => [key, '1'])));
