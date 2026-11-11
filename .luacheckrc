@@ -53,6 +53,8 @@ globals = {
     "DLOG_ERR",
     "autostate",
     "b_debug",
+    -- Состояние проверки Googlevideo хранится между вызовами десинк-функции.
+    "z2k_pf_flows", "z2k_preflight",
 }
 
 read_globals = {
@@ -154,6 +156,9 @@ read_globals = {
     "TLS_EXT_ALPN",
     "TLS_EXT_SUPPORTED_GROUPS",
     "TCP_KIND_TS",
+    -- Константы и функции nfqws2 для пробной TCP-сессии Googlevideo.
+    "TCP_KIND_SCALE", "TCP_KIND_MSS", "TCP_KIND_NOOP",
+    "bu8", "u32", "u32add", "seq_ge", "execution_plan_cancel",
 
     -- TCP flag bits (zapret-lib.lua)
     "TH_FIN",
