@@ -64,6 +64,22 @@ done
 
 LUA_USED=$(sort -u /tmp/test_install_inits.txt | tr '\n' ' ')
 
+# OpenWrt загружает fork-модули динамическим списком из своего адаптера,
+# поэтому эти --lua-init ссылки не находятся в Keenetic S99 выше.
+OW_INIT_NAMES=$(awk '
+    /for _f in/ { in_list=1; sub(/^.*for _f in/, "") }
+    in_list {
+        done = /; do/
+        gsub(/\\\\/, " ")
+        sub(/; do.*/, "")
+        print
+        if (done) exit
+    }
+' platform/openwrt/optbase.sh)
+OW_LUA_USED=$(printf '%s\n' "$OW_INIT_NAMES" | tr ' \t' '\n' \
+    | grep -E '^z2k-[a-z0-9-]+$' | sed 's|^|lua/|; s|$|.lua|' | tr '\n' ' ')
+LUA_USED="$LUA_USED $OW_LUA_USED"
+
 # 2) Collect downloaded files in z2k.sh (space-separated for substring match)
 LUA_DOWNLOADED=$(grep -oE '\$\{GITHUB_RAW\}/files/lua/[a-zA-Z_0-9-]+\.lua' z2k.sh \
     | sed 's|.*files/||' | sort -u | tr '\n' ' ')
